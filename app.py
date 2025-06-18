@@ -31,11 +31,20 @@ def clean_company(name):
     return name.capitalize()
 
 # --- Name Cleaning ---
-def clean_name(name):
+def clean_name(name, is_first=True):
     if pd.isna(name): return ''
     name = fix_mojibake(str(name))
-    name = unidecode(name).strip().title()
-    return name
+    name = unidecode(name).strip()
+    name_parts = name.split()
+
+    if not name_parts:
+        return ''
+
+    if is_first:
+        return name_parts[0].title()  # Keep only the first word
+    else:
+        return name_parts[-1].title()  # Keep only the last word
+
 
 def infer_missing_name(first, last, email):
     if pd.isna(email):
@@ -111,8 +120,8 @@ def clean_data(df):
         return df
 
     for i, row in df.iterrows():
-        first = clean_name(remove_special_chars(row.get('First Name', '')))
-        last = clean_name(remove_special_chars(row.get('Last Name', '')))
+        first = clean_name(remove_special_chars(row.get('First Name', '')), is_first=True)
+        last = clean_name(remove_special_chars(row.get('Last Name', '')), is_first=False)
         email = remove_special_chars(row.get('Email', ''))
         first, last = infer_missing_name(first, last, email)
 
