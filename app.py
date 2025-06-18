@@ -38,14 +38,32 @@ def clean_name(name):
     return name
 
 def infer_missing_name(first, last, email):
-    if pd.isna(email): return first, last
+    if pd.isna(email):
+        return first, last
+
     email_user = email.split('@')[0]
-    parts = re.split(r'[._]', email_user)
-    if (not first or len(first) <= 2) and parts:
-        first = parts[0].capitalize()
-    if (not last or len(last) <= 2) and len(parts) > 1:
-        last = parts[-1].capitalize()
+    parts = re.split(r'[._\-]', email_user)
+
+    # Handle jsmith → First: J, Last: Smith
+    if len(parts) == 1 and len(first) <= 2 and len(last) <= 2:
+        match = re.match(r'^([a-zA-Z])([a-zA-Z]+)$', email_user)
+        if match:
+            first_guess, last_guess = match.groups()
+            if len(first) <= 2:
+                first = first_guess.capitalize()
+            if len(last) <= 2:
+                last = last_guess.capitalize()
+            return first, last
+
+    # Handle john.smith or smith.john
+    if len(parts) >= 2:
+        if len(first) <= 2:
+            first = parts[0].capitalize()
+        if len(last) <= 2:
+            last = parts[-1].capitalize()
+    
     return first, last
+
 
 # --- Special Characters ---
 def remove_special_chars(text):
