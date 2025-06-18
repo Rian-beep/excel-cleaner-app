@@ -44,7 +44,7 @@ def infer_missing_name(first, last, email):
     email_user = email.split('@')[0].lower()
     parts = re.split(r'[._\-]', email_user)
 
-    # Handle john.smith or smith.john
+    # Common patterns like john.smith, smith.john
     if len(parts) >= 2:
         if len(first) <= 2:
             first = parts[0].capitalize()
@@ -52,7 +52,7 @@ def infer_missing_name(first, last, email):
             last = parts[-1].capitalize()
         return first, last
 
-    # Handle jsmith → First: J, Last: Smith
+    # jsmith → First: J, Last: Smith
     if len(parts) == 1 and len(first) <= 2 and len(last) <= 2:
         match = re.match(r'^([a-zA-Z])([a-zA-Z]+)$', email_user)
         if match:
@@ -63,19 +63,34 @@ def infer_missing_name(first, last, email):
                 last = last_guess.capitalize()
             return first, last
 
-    # NEW: Handle johnsmith@... or smithjohn@...
+    # NEW: johnsmith@... or smithjohn@...
     if len(first) > 1 and len(last) <= 2:
-        # Remove first name from email to get last name guess
-        guess = email_user.replace(first.lower(), '', 1)
-        if guess and (last.lower() == guess[0] or len(last) <= 2):
-            last = guess.capitalize()
-            return first, last
+        if first.lower() in email_user:
+            guess = email_user.replace(first.lower(), '', 1)
+            if guess and (last.lower() == guess[0] or len(last) <= 2):
+                last = guess.capitalize()
+                return first, last
+        else:
+            # Try matching first initial + last
+            if email_user.startswith(first[0].lower()) and len(email_user) > 2:
+                guess = email_user[1:]
+                if guess and (last.lower() == guess[0] or len(last) <= 2):
+                    last = guess.capitalize()
+                    return first, last
 
+    # Also check reverse (smithjohn)
     if len(last) > 1 and len(first) <= 2:
-        guess = email_user.replace(last.lower(), '', 1)
-        if guess and (first.lower() == guess[0] or len(first) <= 2):
-            first = guess.capitalize()
-            return first, last
+        if last.lower() in email_user:
+            guess = email_user.replace(last.lower(), '', 1)
+            if guess and (first.lower() == guess[0] or len(first) <= 2):
+                first = guess.capitalize()
+                return first, last
+        else:
+            if email_user.endswith(last.lower()):
+                guess = email_user.replace(last.lower(), '', 1)
+                if guess and guess[0] == last[0].lower():
+                    first = guess.capitalize()
+                    return first, last
 
     return first, last
 
