@@ -27,17 +27,13 @@ def clean_company(name):
     name = fix_mojibake(str(name))
     name = unidecode(name)
 
-    # Remove common suffixes (e.g. Inc., Ltd) as whole words
-    name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
+    # Remove suffixes
+    name = re.sub(r'\\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\\b', '', name, flags=re.IGNORECASE)
 
-    # Remove punctuation, extra spaces
+    # Remove punctuation and trim spaces
     name = re.sub(r'[^A-Za-z0-9\\s\\-]', '', name)
-    name = re.sub(r'\\s{2,}', ' ', name)  # Replace double spaces
+    name = re.sub(r'\\s{2,}', ' ', name)
     name = name.strip().lower()
-
-    for k, v in NAME_MAP.items():
-        if k in name:
-            return v.capitalize()
 
     return name.capitalize()
 
@@ -158,7 +154,7 @@ st.markdown("Upload your Cognism or LinkedIn CSV export and get a cleaned versio
 uploaded_file = st.file_uploader("📤 Upload CSV File", type=["csv"])
 
 if uploaded_file:
-    df = pd.read_csv(uploaded_file, encoding='latin1')
+    df = pd.read_csv(uploaded_file)
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
 
     st.write("📋 Detected columns:", df.columns.tolist())
