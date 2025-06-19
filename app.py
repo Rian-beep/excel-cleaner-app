@@ -143,8 +143,6 @@ uploaded_file = st.file_uploader("📤 Upload CSV File", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
-
-    # Normalize column names
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
     st.write("📋 Detected columns:", df.columns.tolist())
 
@@ -152,12 +150,12 @@ if uploaded_file:
 
     st.success("✅ Done! Your data is cleaned and ready to download.")
 
-   st.download_button(
-    label="📥 Download Cleaned CSV",
-    data=cleaned_df.to_csv(index=False).encode("utf-8"),
-    file_name="cleaned_output.csv",
-    mime="text/csv"
-)
+    st.download_button(
+        label="📥 Download Cleaned CSV",
+        data=cleaned_df.to_csv(index=False).encode("utf-8"),
+        file_name="cleaned_output.csv",
+        mime="text/csv"
+    )
 
     st.subheader("🔍 Before Cleaning")
     st.dataframe(df.head(10))
