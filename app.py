@@ -109,21 +109,37 @@ def remove_special_chars(text):
 def clean_data(df):
     if 'First Name' not in df.columns or 'Last Name' not in df.columns or 'Company' not in df.columns:
         st.error("CSV must contain 'First Name', 'Last Name', and 'Company' columns.")
-        return df
+        return df, 0.0
+
+    cleaned_df = df.copy()
+    rows_changed = 0
 
     for i, row in df.iterrows():
-        first = clean_name(remove_special_chars(row.get('First Name', '')), is_first=True)
-        last = clean_name(remove_special_chars(row.get('Last Name', '')), is_first=False)
-        email = remove_special_chars(row.get('Email', ''))
+        original = {
+            'First Name': str(row.get('First Name', '')).strip(),
+            'Last Name': str(row.get('Last Name', '')).strip(),
+            'Company': str(row.get('Company', '')).strip(),
+            'Email': str(row.get('Email', '')).strip() if 'Email' in df.columns else ''
+        }
+
+        first = clean_name(remove_special_chars(original['First Name']), is_first=True)
+        last = clean_name(remove_special_chars(original['Last Name']), is_first=False)
+        email = remove_special_chars(original['Email'])
         first, last = infer_missing_name(first, last, email)
+        company = clean_company(original['Company'])
 
-        df.at[i, 'First Name'] = first
-        df.at[i, 'Last Name'] = last
-        df.at[i, 'Company'] = clean_company(row.get('Company', ''))
+        if first != original['First Name'] or last != original['Last Name'] or company != original['Company']:
+            rows_changed += 1
+
+        cleaned_df.at[i, 'First Name'] = first
+        cleaned_df.at[i, 'Last Name'] = last
+        cleaned_df.at[i, 'Company'] = company
         if 'Email' in df.columns:
-            df.at[i, 'Email'] = email
+            cleaned_df.at[i, 'Email'] = email
 
-    return df
+    percent_cleaned = (rows_changed / len(df)) * 100 if len(df) else 0
+    return cleaned_df, percent_cleaned
+
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Excel Cleaner", layout="centered")
@@ -139,9 +155,10 @@ if uploaded_file:
 
     st.write("📋 Detected columns:", df.columns.tolist())
 
-    cleaned_df = clean_data(df.copy())
+    cleaned_df, percent_cleaned = clean_data(df.copy())
 
     st.success("✅ Done! Your data is cleaned and ready to download.")
+    st.info(f"🧮 {percent_cleaned:.1f}% of rows were cleaned or updated.")
 
     st.download_button(
     label="📥 Download Cleaned CSV",
