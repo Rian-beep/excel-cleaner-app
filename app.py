@@ -37,6 +37,28 @@ def clean_name(name, is_first=True):
         return ''
     return name_parts[0].title() if is_first else name_parts[-1].title()
 
+# --- Email-Based Last Name Inference ---
+def infer_from_email(first, last, email):
+    if pd.isna(email):
+        return first, last
+
+    email_user = email.split('@')[0].lower()
+
+    # If last name is just one character and email has full last name
+    if len(last) == 1:
+        pattern = re.escape(first.lower()) + r'[._]?([a-z]+)'  # e.g., john.smith or johnsmith
+        match = re.match(pattern, email_user)
+        if match:
+            return first, match.group(1).title()
+
+        # e.g., jsmith
+        if len(first) > 1 and email_user.startswith(first[0].lower()):
+            guess = email_user[len(first[0]):]
+            if guess:
+                return first, guess.title()
+
+    return first, last
+
 # --- Main Cleaning Function ---
 def clean_data(df):
     cleaned_df = df.copy()
@@ -46,10 +68,12 @@ def clean_data(df):
         original_first = str(row.get('First Name', '')).strip()
         original_last = str(row.get('Last Name', '')).strip()
         original_company = str(row.get('Company', '')).strip()
+        original_email = str(row.get('Email', '')).strip() if 'Email' in df.columns else ''
 
         first = clean_name(original_first, is_first=True)
         last = clean_name(original_last, is_first=False)
         company = clean_company(original_company)
+        first, last = infer_from_email(first, last, original_email)
 
         if (first != original_first) or (last != original_last) or (company != original_company):
             changes += 1
