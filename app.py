@@ -4,6 +4,29 @@ import re
 from unidecode import unidecode
 from ftfy import fix_text
 
+# Inject Montserrat font and custom styling
+st.markdown("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap');
+        html, body, [class*="css"]  {
+            font-family: 'Montserrat', sans-serif;
+        }
+        .block-container {
+            padding: 2rem;
+        }
+        .stButton>button, .stDownloadButton>button {
+            border-radius: 10px;
+            padding: 0.5rem 1.25rem;
+        }
+        .stMarkdown, .stDataFrame {
+            background-color: #ffffff;
+            padding: 1rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- Company Cleaning ---
 COMMON_SUFFIXES = [
     'ltd', 'inc', 'group', 'brands', 'company', 'companies', 'incorporation'
@@ -37,21 +60,18 @@ def clean_name(name, is_first=True):
         return ''
     return name_parts[0].title() if is_first else name_parts[-1].title()
 
-# --- Email-Based Last Name Inference ---
 def infer_from_email(first, last, email):
     if pd.isna(email):
         return first, last
 
     email_user = email.split('@')[0].lower()
 
-    # If last name is just one character and email has full last name
     if len(last) == 1:
-        pattern = re.escape(first.lower()) + r'[._]?([a-z]+)'  # e.g., john.smith or johnsmith
+        pattern = re.escape(first.lower()) + r'[._]?([a-z]+)'
         match = re.match(pattern, email_user)
         if match:
             return first, match.group(1).title()
 
-        # e.g., jsmith
         if len(first) > 1 and email_user.startswith(first[0].lower()):
             guess = email_user[len(first[0]):]
             if guess:
@@ -86,22 +106,22 @@ def clean_data(df):
     return cleaned_df, percent_cleaned
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="Excel Cleaner", layout="centered")
+st.set_page_config(page_title="BrightSheet", layout="centered")
 
-st.title("🧼 Excel Cleaner for Mail Merge")
-st.markdown("Upload your Cognism or LinkedIn CSV export and get a cleaned version ready for mail merge.")
+st.title("🧼 BrightSheet — Clean Your CSVs for Mail Merge")
+st.markdown("Upload your Cognism CSV export and get a cleaned version ready for mail merge.")
 
 uploaded_file = st.file_uploader("📤 Upload CSV File", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file, encoding='latin1')
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
-    column_map = {'Company Name': 'Company'}
-    df.rename(columns=column_map, inplace=True)
+    df.rename(columns={'Company Name': 'Company'}, inplace=True)
 
     st.write("📋 Detected columns:", df.columns.tolist())
 
-    cleaned_df, percent_cleaned = clean_data(df)
+    with st.spinner("Cleaning your data..."):
+        cleaned_df, percent_cleaned = clean_data(df)
 
     st.success("✅ Done! Your data is cleaned and ready to download.")
     st.info(f"🧮 {percent_cleaned:.1f}% of rows were cleaned or updated.")
@@ -113,9 +133,12 @@ if uploaded_file:
         mime="text/csv"
     )
 
-    st.subheader("🔍 Before Cleaning")
-    st.dataframe(df.head(10))
+    col1, col2 = st.columns(2)
 
-    st.subheader("✨ After Cleaning")
-    st.dataframe(cleaned_df.head(10))
+    with col1:
+        st.subheader("🔍 Before Cleaning")
+        st.dataframe(df.head(10))
 
+    with col2:
+        st.subheader("✨ After Cleaning")
+        st.dataframe(cleaned_df.head(10))
