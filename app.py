@@ -10,8 +10,11 @@ COMMON_SUFFIXES = [
 
 def clean_company(name):
     if pd.isna(name): return ''
-    name = str(name).encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
-    name = unidecode(name)
+    try:
+        name = name.encode('latin1').decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    name = unidecode(str(name))
     name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
     name = re.sub(r'\s{2,}', ' ', name)
@@ -20,8 +23,11 @@ def clean_company(name):
 # --- Name Cleaning ---
 def clean_name(name, is_first=True):
     if pd.isna(name): return ''
-    name = str(name).encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
-    name = unidecode(name).strip()
+    try:
+        name = name.encode('latin1').decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    name = unidecode(str(name)).strip()
     name_parts = name.split()
     if not name_parts:
         return ''
@@ -62,6 +68,8 @@ uploaded_file = st.file_uploader("📤 Upload CSV File", type=["csv"])
 if uploaded_file:
     df = pd.read_csv(uploaded_file, encoding='latin1')
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
+    column_map = {'Company Name': 'Company'}
+    df.rename(columns=column_map, inplace=True)
 
     st.write("📋 Detected columns:", df.columns.tolist())
 
