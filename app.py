@@ -5,7 +5,10 @@ import emoji
 from unidecode import unidecode
 
 # --- Company Cleaning ---
-COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'company', 'brands']
+COMMON_SUFFIXES = [
+    'ltd', 'inc', 'group', 'brands', 'company',
+    'companies', 'incorporation'
+]
 NAME_MAP = {
     'colgate-palmolive': 'colgate',
     'loreal': 'loreal',
@@ -17,14 +20,19 @@ def fix_mojibake(text):
         text = text.encode('latin1').decode('utf-8')
     except (UnicodeEncodeError, UnicodeDecodeError):
         pass
-    return unidecode(text)
+    return unidecode(text)  # ← remove accents no matter what
 
 def clean_company(name):
     if pd.isna(name): return ''
-    name = str(name)
-    name = unidecode(name)  # <- always remove accents
+    name = fix_mojibake(str(name))
+    name = unidecode(name)
+
+    # Remove common suffixes (e.g. Inc., Ltd) as whole words
     name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
-    name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
+
+    # Remove punctuation, extra spaces
+    name = re.sub(r'[^A-Za-z0-9\\s\\-]', '', name)
+    name = re.sub(r'\\s{2,}', ' ', name)  # Replace double spaces
     name = name.strip().lower()
 
     for k, v in NAME_MAP.items():
@@ -150,7 +158,7 @@ st.markdown("Upload your Cognism or LinkedIn CSV export and get a cleaned versio
 uploaded_file = st.file_uploader("📤 Upload CSV File", type=["csv"])
 
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+    df = pd.read_csv(uploaded_file, encoding='latin1')
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
 
     st.write("📋 Detected columns:", df.columns.tolist())
