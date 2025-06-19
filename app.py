@@ -21,28 +21,29 @@ def fix_mojibake(text):
 
 def clean_company(name):
     if pd.isna(name): return ''
-    name = fix_mojibake(str(name))
+    name = str(name)
+    name = unidecode(name)  # <- always remove accents
     name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
     name = name.strip().lower()
+
     for k, v in NAME_MAP.items():
         if k in name:
             return v.capitalize()
+
     return name.capitalize()
 
 # --- Name Cleaning ---
 def clean_name(name, is_first=True):
     if pd.isna(name): return ''
-    name = fix_mojibake(str(name)).strip()
+    name = str(name).strip()
+    name = unidecode(name)  # <- always remove accents
     name_parts = name.split()
 
     if not name_parts:
         return ''
 
-    if is_first:
-        return name_parts[0].title()
-    else:
-        return name_parts[-1].title()
+    return name_parts[0].title() if is_first else name_parts[-1].title()
 
 def infer_missing_name(first, last, email):
     if pd.isna(email):
