@@ -41,10 +41,9 @@ def clean_name(name, is_first=True):
         return ''
 
     if is_first:
-        return name_parts[0].title()  # Keep only the first word
+        return name_parts[0].title()
     else:
-        return name_parts[-1].title()  # Keep only the last word
-
+        return name_parts[-1].title()
 
 def infer_missing_name(first, last, email):
     if pd.isna(email):
@@ -53,7 +52,6 @@ def infer_missing_name(first, last, email):
     email_user = email.split('@')[0].lower()
     parts = re.split(r'[._\-]', email_user)
 
-    # Common patterns like john.smith, smith.john
     if len(parts) >= 2:
         if len(first) <= 2:
             first = parts[0].capitalize()
@@ -61,7 +59,6 @@ def infer_missing_name(first, last, email):
             last = parts[-1].capitalize()
         return first, last
 
-    # jsmith → First: J, Last: Smith
     if len(parts) == 1 and len(first) <= 2 and len(last) <= 2:
         match = re.match(r'^([a-zA-Z])([a-zA-Z]+)$', email_user)
         if match:
@@ -72,7 +69,6 @@ def infer_missing_name(first, last, email):
                 last = last_guess.capitalize()
             return first, last
 
-    # NEW: johnsmith@... or smithjohn@...
     if len(first) > 1 and len(last) <= 2:
         if first.lower() in email_user:
             guess = email_user.replace(first.lower(), '', 1)
@@ -80,14 +76,12 @@ def infer_missing_name(first, last, email):
                 last = guess.capitalize()
                 return first, last
         else:
-            # Try matching first initial + last
             if email_user.startswith(first[0].lower()) and len(email_user) > 2:
                 guess = email_user[1:]
                 if guess and (last.lower() == guess[0] or len(last) <= 2):
                     last = guess.capitalize()
                     return first, last
 
-    # Also check reverse (smithjohn)
     if len(last) > 1 and len(first) <= 2:
         if last.lower() in email_user:
             guess = email_user.replace(last.lower(), '', 1)
@@ -102,7 +96,6 @@ def infer_missing_name(first, last, email):
                     return first, last
 
     return first, last
-
 
 # --- Special Characters ---
 def remove_special_chars(text):
@@ -144,6 +137,15 @@ uploaded_file = st.file_uploader("📤 Upload CSV File", type=["csv"])
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
+
+    column_map = {
+        'first name': 'First Name',
+        'last name': 'Last Name',
+        'company': 'Company',
+        'email': 'Email'
+    }
+    df.rename(columns=lambda c: column_map.get(c.strip().lower(), c.strip().title()), inplace=True)
+
     st.write("📋 Detected columns:", df.columns.tolist())
 
     cleaned_df = clean_data(df.copy())
@@ -162,3 +164,4 @@ if uploaded_file:
 
     st.subheader("✨ After Cleaning")
     st.dataframe(cleaned_df.head(10))
+
