@@ -19,10 +19,10 @@ st.markdown("""
             padding: 0.5rem 1.25rem;
         }
         .stMarkdown, .stDataFrame {
-            background-color: #ffffff;
+            background-color: #1E1E1E;
             padding: 1rem;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
     </style>
 """, unsafe_allow_html=True)
@@ -109,7 +109,7 @@ def clean_data(df):
 st.set_page_config(page_title="BrightSheet", layout="centered")
 
 st.title("🧼 BrightSheet — Clean Your CSVs for Mail Merge")
-st.markdown("Upload your Cognism CSV export and get a cleaned version ready for mail merge.")
+st.markdown("Upload your Cognism or LinkedIn CSV export and get a cleaned version ready for mail merge.")
 
 uploaded_file = st.file_uploader("📤 Upload CSV File", type=["csv"])
 
