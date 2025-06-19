@@ -138,14 +138,6 @@ if uploaded_file:
     df = pd.read_csv(uploaded_file, encoding='latin1')
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
 
-    column_map = {
-        'first name': 'First Name',
-        'last name': 'Last Name',
-        'company': 'Company',
-        'email': 'Email'
-    }
-    df.rename(columns=lambda c: column_map.get(c.strip().lower(), c.strip().title()), inplace=True)
-
     st.write("📋 Detected columns:", df.columns.tolist())
 
     cleaned_df = clean_data(df.copy())
@@ -164,4 +156,3 @@ if uploaded_file:
 
     st.subheader("✨ After Cleaning")
     st.dataframe(cleaned_df.head(10))
-
