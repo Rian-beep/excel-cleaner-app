@@ -154,7 +154,7 @@ if uploaded_file:
 
     st.download_button(
         "📥 Download Cleaned CSV",
-        cleaned_df.to_csv(index=False).encode("utf-8"),
+        st.download_button("Download Cleaned CSV", cleaned_df.to_csv(index=False).encode('utf-8'), "cleaned_output.csv", "text/csv")
         "cleaned_output.csv",
         "text/csv"
     )
