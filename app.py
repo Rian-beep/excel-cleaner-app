@@ -17,12 +17,11 @@ def fix_mojibake(text):
         text = text.encode('latin1').decode('utf-8')
     except (UnicodeEncodeError, UnicodeDecodeError):
         pass
-    return unidecode(text)  # ← this ensures all output is accent-free
+    return unidecode(text)
 
 def clean_company(name):
     if pd.isna(name): return ''
     name = fix_mojibake(str(name))
-    name = unidecode(name)
     name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
     name = name.strip().lower()
@@ -34,8 +33,7 @@ def clean_company(name):
 # --- Name Cleaning ---
 def clean_name(name, is_first=True):
     if pd.isna(name): return ''
-    name = fix_mojibake(str(name))
-    name = unidecode(name).strip()
+    name = fix_mojibake(str(name)).strip()
     name_parts = name.split()
 
     if not name_parts:
@@ -102,7 +100,6 @@ def infer_missing_name(first, last, email):
 def remove_special_chars(text):
     if pd.isna(text): return ''
     text = fix_mojibake(str(text))
-    text = unidecode(text)
     text = emoji.replace_emoji(text, replace='')
     text = re.sub(r'[^\w\s\-@\.]', '', text)
     return text.strip()
