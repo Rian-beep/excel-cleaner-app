@@ -14,9 +14,10 @@ NAME_MAP = {
 def fix_mojibake(text):
     if pd.isna(text): return ''
     try:
-        return text.encode('latin1').decode('utf-8')
+        text = text.encode('latin1').decode('utf-8')
     except (UnicodeEncodeError, UnicodeDecodeError):
-        return text
+        pass
+    return unidecode(text)  # ← this ensures all output is accent-free
 
 def clean_company(name):
     if pd.isna(name): return ''
