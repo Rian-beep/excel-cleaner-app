@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 from unidecode import unidecode
+from ftfy import fix_text
 
 # --- Company Cleaning ---
 COMMON_SUFFIXES = [
@@ -14,11 +15,13 @@ def clean_company(name):
         name = name.encode('latin1').decode('utf-8')
     except (UnicodeEncodeError, UnicodeDecodeError):
         pass
+    name = fix_text(name)
     name = unidecode(str(name))
     name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
     name = re.sub(r'\s{2,}', ' ', name)
-    return name.strip().title()
+    name = name.strip()
+    return name.upper() if len(name) <= 3 else name.title()
 
 # --- Name Cleaning ---
 def clean_name(name, is_first=True):
@@ -27,6 +30,7 @@ def clean_name(name, is_first=True):
         name = name.encode('latin1').decode('utf-8')
     except (UnicodeEncodeError, UnicodeDecodeError):
         pass
+    name = fix_text(name)
     name = unidecode(str(name)).strip()
     name_parts = name.split()
     if not name_parts:
@@ -90,3 +94,4 @@ if uploaded_file:
 
     st.subheader("✨ After Cleaning")
     st.dataframe(cleaned_df.head(10))
+
