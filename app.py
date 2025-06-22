@@ -139,7 +139,7 @@ if uploaded_file:
     st.download_button(
         label="📥 Download Cleaned CSV",
         data=cleaned_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name="cleaned_output.csv",
+        file_name=uploaded_file.name.replace('.csv', '_cleaned.csv'),
         mime="text/csv",
         key="download-cleaned",
     )
