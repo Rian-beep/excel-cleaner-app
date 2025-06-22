@@ -134,8 +134,7 @@ if uploaded_file:
     cleaned_df, percent_cleaned = clean_data(df)
 
     st.success("✅ Done! Your data is cleaned and ready to download.")
-    st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.
-")
+    st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
 
     # Log to Google Sheets
     tracking_data = {
