@@ -142,7 +142,7 @@ if uploaded_file:
         'rows': len(df),
         'cleaned': int((percent_cleaned / 100) * len(df)),
         'percent_cleaned': round(percent_cleaned, 1),
-        'time_saved': int(len(df) * 7.5) - 1  # 7.5s per row manually - 1s tool time
+        'time_saved': round((int((percent_cleaned / 100) * len(df)) * 7.5) / 60, 1)  # 7.5s per row manually - 1s tool time
     }
     try:
         requests.post(
