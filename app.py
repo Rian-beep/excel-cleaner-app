@@ -142,3 +142,30 @@ if uploaded_file:
     with col2:
         st.subheader("✨ After Cleaning")
         st.dataframe(cleaned_df.head(10))
+
+import requests
+from datetime import datetime
+
+st.markdown("---")
+st.subheader("💬 Leave Feedback")
+
+with st.form(key="feedback_form"):
+    feedback = st.text_area("Have any suggestions, bugs, or feature ideas?", height=150)
+    submitted = st.form_submit_button("Submit Feedback")
+
+    if submitted:
+        if feedback.strip():
+            try:
+                response = requests.post(
+                    "https://script.google.com/macros/s/AKfycbygemF7sBBlLLQnnp44crC-l6kqu77lYvCaxvH01k5tNCpF5Tkul9vbecscOORrfDaPMA/exec",
+                    json={"message": feedback}
+                )
+                if response.status_code == 200:
+                    st.success("✅ Thanks! Your feedback was submitted.")
+                else:
+                    st.error("⚠️ Something went wrong. Please try again later.")
+            except Exception as e:
+                st.error(f"❌ Failed to submit feedback: {e}")
+        else:
+            st.warning("✏️ Please write something before submitting.")
+
