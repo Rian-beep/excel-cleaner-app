@@ -121,7 +121,6 @@ st.set_page_config(page_title="Cleanr", layout="centered")
 
 st.markdown('<div class="title-text">Cleanr.</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle-text">Clean your data faster.</div>', unsafe_allow_html=True)
-
 st.markdown('<div class="rounded-box">Upload your Cognism CSV export and get a cleaned version ready for mail merge.</div>', unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
@@ -136,18 +135,20 @@ if uploaded_file:
     st.success("✅ Done! Your data is cleaned and ready to download.")
     st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
 
-    # Log to Google Sheets
-    tracking_data = {
-        'filename': uploaded_file.name,
-        'rows': len(df),
-        'cleaned': int((percent_cleaned / 100) * len(df)),
-        'percent_cleaned': round(percent_cleaned, 1),
-        'time_saved': round((int((percent_cleaned / 100) * len(df)) * 7.5) / 60, 1)  # 7.5s per row manually - 1s tool time
+    # Send Usage Log
+    usage_data = {
+        "type": "usage",
+        "sheet": "Usage",
+        "filename": uploaded_file.name,
+        "rows": len(df),
+        "cleaned": int((percent_cleaned / 100) * len(df)),
+        "percent_cleaned": round(percent_cleaned, 1),
+        "time_saved": round((int((percent_cleaned / 100) * len(df)) * 7.5) / 60, 1)
     }
     try:
         requests.post(
-            "https://script.google.com/macros/s/AKfycbxS1qSh_ge3DQCbWNhjsvtWa4dvSrx9rBXs9PyJ0sC8P8tYyRGzoNJRAK7tfZvsx_sr1A/exec",
-            json={**tracking_data, "type": "usage", "sheet": "Usage"}
+            "https://script.google.com/macros/s/AKfycbxM7dmZfMIuWcNWiyxAh8nwX69rvuRaioJ6EH_k7Vx9DRu6DdYdMIO3ZbsZmH--Q5q1/exec",
+            json=usage_data
         )
     except:
         pass
@@ -161,7 +162,6 @@ if uploaded_file:
     )
 
     st.markdown("<div class='section-header'>Preview</div>", unsafe_allow_html=True)
-
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("<b>Before Cleaning</b>", unsafe_allow_html=True)
@@ -179,17 +179,18 @@ with st.form(key="feedback_form"):
     if submitted:
         if feedback.strip():
             try:
-                response = requests.post(
-                    "https://script.google.com/macros/s/AKfycbxS1qSh_ge3DQCbWNhjsvtWa4dvSrx9rBXs9PyJ0sC8P8tYyRGzoNJRAK7tfZvsx_sr1A/exec",
-                    json={"type": "feedback", "sheet": "Feedback", "timestamp": str(pd.Timestamp.now()), "message": feedback.strip()}
+                requests.post(
+                    "https://script.google.com/macros/s/AKfycbxM7dmZfMIuWcNWiyxAh8nwX69rvuRaioJ6EH_k7Vx9DRu6DdYdMIO3ZbsZmH--Q5q1/exec",
+                    json={
+                        "type": "feedback",
+                        "sheet": "Feedback",
+                        "timestamp": str(pd.Timestamp.now()),
+                        "message": feedback.strip()
+                    }
                 )
-                if response.status_code == 200:
-                    st.success("✅ Thanks! Your feedback was submitted.")
-                else:
-                    st.error("⚠️ Something went wrong. Please try again later.")
+                st.success("✅ Thanks! Your feedback was submitted.")
             except Exception as e:
                 st.error(f"❌ Failed to submit feedback: {e}")
         else:
             st.warning("✏️ Please write something before submitting.")
 st.markdown("</div>", unsafe_allow_html=True)
-
