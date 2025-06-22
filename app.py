@@ -147,7 +147,7 @@ if uploaded_file:
     try:
         requests.post(
             "https://script.google.com/macros/s/AKfycbxS1qSh_ge3DQCbWNhjsvtWa4dvSrx9rBXs9PyJ0sC8P8tYyRGzoNJRAK7tfZvsx_sr1A/exec",
-            json={**tracking_data, "type": "usage"}
+            json={**tracking_data, "type": "usage", "sheet": "Usage"}
         )
     except:
         pass
@@ -181,7 +181,7 @@ with st.form(key="feedback_form"):
             try:
                 response = requests.post(
                     "https://script.google.com/macros/s/AKfycbxS1qSh_ge3DQCbWNhjsvtWa4dvSrx9rBXs9PyJ0sC8P8tYyRGzoNJRAK7tfZvsx_sr1A/exec",
-                    json={"type": "feedback", "timestamp": str(pd.Timestamp.now()), "message": feedback.strip()}
+                    json={"type": "feedback", "sheet": "Feedback", "timestamp": str(pd.Timestamp.now()), "message": feedback.strip()}
                 )
                 if response.status_code == 200:
                     st.success("✅ Thanks! Your feedback was submitted.")
@@ -192,3 +192,4 @@ with st.form(key="feedback_form"):
         else:
             st.warning("✏️ Please write something before submitting.")
 st.markdown("</div>", unsafe_allow_html=True)
+
