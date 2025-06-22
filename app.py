@@ -147,7 +147,7 @@ if uploaded_file:
     try:
         requests.post(
             "https://script.google.com/macros/s/AKfycbxS1qSh_ge3DQCbWNhjsvtWa4dvSrx9rBXs9PyJ0sC8P8tYyRGzoNJRAK7tfZvsx_sr1A/exec",
-            json=tracking_data
+            json={**tracking_data, "type": "usage"}
         )
     except:
         pass
@@ -180,8 +180,8 @@ with st.form(key="feedback_form"):
         if feedback.strip():
             try:
                 response = requests.post(
-                    "https://script.google.com/macros/s/AKfycbygemF7sBBlLLQnnp44crC-l6kqu77lYvCaxvH01k5tNCpF5Tkul9vbecscOORrfDaPMA/exec",
-                    json={"message": feedback.strip(), "timestamp": str(pd.Timestamp.now()), "filename": uploaded_file.name if uploaded_file else "N/A"}
+                    "https://script.google.com/macros/s/AKfycbxS1qSh_ge3DQCbWNhjsvtWa4dvSrx9rBXs9PyJ0sC8P8tYyRGzoNJRAK7tfZvsx_sr1A/exec",
+                    json={"type": "feedback", "timestamp": str(pd.Timestamp.now()), "message": feedback.strip()}
                 )
                 if response.status_code == 200:
                     st.success("✅ Thanks! Your feedback was submitted.")
