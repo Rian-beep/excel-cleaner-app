@@ -134,7 +134,24 @@ if uploaded_file:
     cleaned_df, percent_cleaned = clean_data(df)
 
     st.success("✅ Done! Your data is cleaned and ready to download.")
-    st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
+    st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.
+")
+
+    # Log to Google Sheets
+    tracking_data = {
+        'filename': uploaded_file.name,
+        'rows': len(df),
+        'cleaned': int((percent_cleaned / 100) * len(df)),
+        'percent_cleaned': round(percent_cleaned, 1),
+        'time_saved': int(len(df) * 7.5) - 1  # 7.5s per row manually - 1s tool time
+    }
+    try:
+        requests.post(
+            "https://script.google.com/macros/s/AKfycbxS1qSh_ge3DQCbWNhjsvtWa4dvSrx9rBXs9PyJ0sC8P8tYyRGzoNJRAK7tfZvsx_sr1A/exec",
+            json=tracking_data
+        )
+    except:
+        pass
 
     st.download_button(
         label="📥 Download Cleaned CSV",
