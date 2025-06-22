@@ -13,46 +13,49 @@ st.markdown("""
         html, body, [class*="css"] {
             font-family: 'Montserrat', sans-serif;
             background-color: #ffffff;
+            color: #0a2342;
         }
         .title-text {
             text-align: center;
             font-size: 3em;
             font-weight: 700;
             margin-bottom: 0.1em;
-            color: #1E2A38;
+            color: #0a2342;
         }
         .subtitle-text {
             text-align: center;
             font-size: 1.2em;
             margin-bottom: 2em;
-            color: #3A3A3A;
+            color: #0a2342;
         }
         .rounded-box {
             background-color: #F0F0F0;
             border-radius: 16px;
             padding: 1.5rem;
             margin-bottom: 1.5rem;
+            color: #0a2342;
         }
         .feedback-container {
             background-color: #F0F0F0;
             border-radius: 16px;
             padding: 1.5rem;
             margin-top: 2rem;
+            color: #0a2342;
         }
         .feedback-box textarea {
             background-color: #112340;
             color: #ffffff;
             border-radius: 12px;
         }
-        .download-button button {
-            background-color: #112340;
-            color: #ffffff;
+        .download-button button, .stButton>button, .stDownloadButton>button {
+            background-color: #112340 !important;
+            color: #ffffff !important;
             border-radius: 12px;
         }
         .section-header {
             font-size: 1.3em;
             font-weight: 600;
-            color: #1E2A38;
+            color: #0a2342;
             margin-bottom: 0.5em;
         }
     </style>
