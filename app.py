@@ -181,7 +181,7 @@ with st.form(key="feedback_form"):
             try:
                 response = requests.post(
                     "https://script.google.com/macros/s/AKfycbygemF7sBBlLLQnnp44crC-l6kqu77lYvCaxvH01k5tNCpF5Tkul9vbecscOORrfDaPMA/exec",
-                    json={"message": feedback}
+                    json={"message": feedback.strip(), "timestamp": str(pd.Timestamp.now()), "filename": uploaded_file.name if uploaded_file else "N/A"}
                 )
                 if response.status_code == 200:
                     st.success("✅ Thanks! Your feedback was submitted.")
