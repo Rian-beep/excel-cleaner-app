@@ -65,7 +65,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Cleaning Logic ---
-COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'companies', 'incorporation', 'corporation']
+COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'international', 'companies', 'incorporation', 'corporation']
 
 
 def clean_company(name):
