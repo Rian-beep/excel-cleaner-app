@@ -4,6 +4,9 @@ import re
 from unidecode import unidecode
 from ftfy import fix_text
 import requests
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill
 
 # --- Global Styles ---
 st.markdown("""
@@ -102,25 +105,58 @@ def infer_from_email(first, last, email):
 def clean_data(df):
     cleaned_df = df.copy()
     changes = 0
+    changes_matrix = pd.DataFrame(False, index=df.index, columns=['First Name', 'Last Name', 'Company'])
+
     for i, row in df.iterrows():
-        orig_first, orig_last = str(row.get('First Name', '')).strip(), str(row.get('Last Name', '')).strip()
+        orig_first = str(row.get('First Name', '')).strip()
+        orig_last = str(row.get('Last Name', '')).strip()
         orig_company = str(row.get('Company', '')).strip()
         email = str(row.get('Email', '')).strip() if 'Email' in df.columns else ''
+
         first, last = clean_name(orig_first, True), clean_name(orig_last, False)
         company = clean_company(orig_company)
         first, last = infer_from_email(first, last, email)
-        if first != orig_first or last != orig_last or company != orig_company: changes += 1
+
+        if first != orig_first:
+            changes_matrix.at[i, 'First Name'] = True
+            changes += 1
+        if last != orig_last:
+            changes_matrix.at[i, 'Last Name'] = True
+            changes += 1
+        if company != orig_company:
+            changes_matrix.at[i, 'Company'] = True
+            changes += 1
+
         cleaned_df.at[i, 'First Name'] = first
         cleaned_df.at[i, 'Last Name'] = last
         cleaned_df.at[i, 'Company'] = company
-    pct = (changes / len(df)) * 100 if len(df) else 0
-    return cleaned_df, pct
+
+    pct = (changes / (len(df) * 3)) * 100 if len(df) else 0
+    return cleaned_df, pct, changes_matrix
+
+def generate_excel_with_highlights(df, changes_matrix):
+    wb = Workbook()
+    ws = wb.active
+    ws.append(df.columns.tolist())
+    yellow = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+    for i, row in df.iterrows():
+        ws.append(row.tolist())
+        for j, col in enumerate(['First Name', 'Last Name', 'Company']):
+            if col in df.columns and changes_matrix.at[i, col]:
+                cell = ws.cell(row=i+2, column=df.columns.get_loc(col)+1)
+                cell.fill = yellow
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
 
 # --- UI Layout ---
 st.set_page_config(page_title="Cleanr", layout="centered")
 
 st.markdown('<div class="title-text">Cleanr.</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle-text">Clean your data faster.</div>', unsafe_allow_html=True)
+
 st.markdown('<div class="rounded-box">Upload your Cognism CSV export and get a cleaned version ready for mail merge.</div>', unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
@@ -130,35 +166,17 @@ if uploaded_file:
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
     df.rename(columns={'Company Name': 'Company'}, inplace=True)
 
-    cleaned_df, percent_cleaned = clean_data(df)
+    cleaned_df, percent_cleaned, changes_matrix = clean_data(df)
+    excel_data = generate_excel_with_highlights(cleaned_df, changes_matrix)
 
     st.success("✅ Done! Your data is cleaned and ready to download.")
-    st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
-
-    # Send Usage Log
-    usage_data = {
-        "type": "usage",
-        "sheet": "Usage",
-        "filename": uploaded_file.name,
-        "rows": len(df),
-        "cleaned": int((percent_cleaned / 100) * len(df)),
-        "percent_cleaned": round(percent_cleaned, 1),
-        "time_saved": round((int((percent_cleaned / 100) * len(df)) * 7.5) / 60, 1)
-    }
-    try:
-        requests.post(
-            "https://script.google.com/macros/s/AKfycbxM7dmZfMIuWcNWiyxAh8nwX69rvuRaioJ6EH_k7Vx9DRu6DdYdMIO3ZbsZmH--Q5q1/exec",
-            json=usage_data
-        )
-    except:
-        pass
+    st.info(f"📊 {percent_cleaned:.1f}% of fields were cleaned or updated.")
 
     st.download_button(
-        label="📥 Download Cleaned CSV",
-        data=cleaned_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name=uploaded_file.name.replace('.csv', '_cleaned.csv'),
-        mime="text/csv",
-        key="download-cleaned",
+        label="📥 Download Cleaned Excel",
+        data=excel_data,
+        file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
     st.markdown("<div class='section-header'>Preview</div>", unsafe_allow_html=True)
