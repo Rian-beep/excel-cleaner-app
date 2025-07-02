@@ -88,7 +88,18 @@ def clean_name(name, is_first=True):
     name = fix_text(name)
     name = unidecode(str(name)).strip()
     name_parts = name.split()
-    return name_parts[0].title() if is_first and name_parts else name_parts[-1].title() if name_parts else ''
+    selected = name_parts[0] if is_first else name_parts[-1] if name_parts else ''
+    selected = selected.lower()
+
+    if not is_first:
+        if selected.startswith("mc") and len(selected) > 2:
+            return "Mc" + selected[2].upper() + selected[3:]
+        if selected.startswith("mac") and len(selected) > 3:
+            return "Mac" + selected[3].upper() + selected[4:]
+        if selected.startswith("o'") and len(selected) > 2:
+            return "O'" + selected[2].upper() + selected[3:]
+
+    return selected.title()
 
 def infer_from_email(first, last, email):
     if pd.isna(email): return first, last
@@ -105,58 +116,34 @@ def infer_from_email(first, last, email):
 def clean_data(df):
     cleaned_df = df.copy()
     changes = 0
-    changes_matrix = pd.DataFrame(False, index=df.index, columns=['First Name', 'Last Name', 'Company'])
-
+    changed_cells = []
     for i, row in df.iterrows():
-        orig_first = str(row.get('First Name', '')).strip()
-        orig_last = str(row.get('Last Name', '')).strip()
+        orig_first, orig_last = str(row.get('First Name', '')).strip(), str(row.get('Last Name', '')).strip()
         orig_company = str(row.get('Company', '')).strip()
         email = str(row.get('Email', '')).strip() if 'Email' in df.columns else ''
-
         first, last = clean_name(orig_first, True), clean_name(orig_last, False)
         company = clean_company(orig_company)
         first, last = infer_from_email(first, last, email)
-
+        
         if first != orig_first:
-            changes_matrix.at[i, 'First Name'] = True
-            changes += 1
+            changed_cells.append((i, 'First Name'))
         if last != orig_last:
-            changes_matrix.at[i, 'Last Name'] = True
-            changes += 1
+            changed_cells.append((i, 'Last Name'))
         if company != orig_company:
-            changes_matrix.at[i, 'Company'] = True
-            changes += 1
+            changed_cells.append((i, 'Company'))
 
+        if first != orig_first or last != orig_last or company != orig_company: changes += 1
         cleaned_df.at[i, 'First Name'] = first
         cleaned_df.at[i, 'Last Name'] = last
         cleaned_df.at[i, 'Company'] = company
-
-    pct = (changes / (len(df) * 3)) * 100 if len(df) else 0
-    return cleaned_df, pct, changes_matrix
-
-def generate_excel_with_highlights(df, changes_matrix):
-    wb = Workbook()
-    ws = wb.active
-    ws.append(df.columns.tolist())
-    yellow = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-
-    for i, row in df.iterrows():
-        ws.append(row.tolist())
-        for j, col in enumerate(['First Name', 'Last Name', 'Company']):
-            if col in df.columns and changes_matrix.at[i, col]:
-                cell = ws.cell(row=i+2, column=df.columns.get_loc(col)+1)
-                cell.fill = yellow
-
-    output = BytesIO()
-    wb.save(output)
-    return output.getvalue()
+    pct = (changes / len(df)) * 100 if len(df) else 0
+    return cleaned_df, pct, changed_cells
 
 # --- UI Layout ---
 st.set_page_config(page_title="Cleanr", layout="centered")
 
 st.markdown('<div class="title-text">Cleanr.</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle-text">Clean your data faster.</div>', unsafe_allow_html=True)
-
 st.markdown('<div class="rounded-box">Upload your Cognism CSV export and get a cleaned version ready for mail merge.</div>', unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
@@ -166,15 +153,49 @@ if uploaded_file:
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
     df.rename(columns={'Company Name': 'Company'}, inplace=True)
 
-    cleaned_df, percent_cleaned, changes_matrix = clean_data(df)
-    excel_data = generate_excel_with_highlights(cleaned_df, changes_matrix)
+    cleaned_df, percent_cleaned, changed_cells = clean_data(df)
 
     st.success("✅ Done! Your data is cleaned and ready to download.")
-    st.info(f"📊 {percent_cleaned:.1f}% of fields were cleaned or updated.")
+    st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
 
+    # Send Usage Log
+    usage_data = {
+        "type": "usage",
+        "sheet": "Usage",
+        "filename": uploaded_file.name,
+        "rows": len(df),
+        "cleaned": int((percent_cleaned / 100) * len(df)),
+        "percent_cleaned": round(percent_cleaned, 1),
+        "time_saved": round((int((percent_cleaned / 100) * len(df)) * 7.5) / 60, 1)
+    }
+    try:
+        requests.post(
+            "https://script.google.com/macros/s/AKfycbxM7dmZfMIuWcNWiyxAh8nwX69rvuRaioJ6EH_k7Vx9DRu6DdYdMIO3ZbsZmH--Q5q1/exec",
+            json=usage_data
+        )
+    except:
+        pass
+
+    # Create Excel with highlight
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Cleaned Data"
+    ws.append(cleaned_df.columns.tolist())
+
+    highlight_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+    for i, row in cleaned_df.iterrows():
+        row_list = row.tolist()
+        ws.append(row_list)
+        for col_name in cleaned_df.columns:
+            if (i, col_name) in changed_cells:
+                col_idx = cleaned_df.columns.get_loc(col_name) + 1
+                ws.cell(row=i+2, column=col_idx).fill = highlight_fill
+
+    output = BytesIO()
+    wb.save(output)
     st.download_button(
-        label="📥 Download Cleaned Excel",
-        data=excel_data,
+        label="📥 Download Cleaned Excel File (with highlights)",
+        data=output.getvalue(),
         file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
@@ -212,3 +233,4 @@ with st.form(key="feedback_form"):
         else:
             st.warning("✏️ Please write something before submitting.")
 st.markdown("</div>", unsafe_allow_html=True)
+
