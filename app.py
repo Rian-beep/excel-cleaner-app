@@ -4,9 +4,8 @@ import re
 from unidecode import unidecode
 from ftfy import fix_text
 import requests
-from io import BytesIO
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill
+from io import BytesIO
 
 # --- Global Styles ---
 st.markdown("""
@@ -65,7 +64,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Cleaning Logic ---
-COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'companies', 'incorporation']
+COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'companies', 'incorporation', 'corporation']
 
 def clean_company(name):
     if pd.isna(name): return ''
@@ -78,7 +77,7 @@ def clean_company(name):
     name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
     name = re.sub(r'\s{2,}', ' ', name)
     name = name.strip()
-    return name.upper() if len(name) <= 3 else name.title()
+    return name.upper() if len(name) <= 4 else name.title()
 
 def clean_name(name, is_first=True):
     if pd.isna(name): return ''
@@ -88,18 +87,11 @@ def clean_name(name, is_first=True):
     name = fix_text(name)
     name = unidecode(str(name)).strip()
     name_parts = name.split()
-    selected = name_parts[0] if is_first else name_parts[-1] if name_parts else ''
-    selected = selected.lower()
-
-    if not is_first:
-        if selected.startswith("mc") and len(selected) > 2:
-            return "Mc" + selected[2].upper() + selected[3:]
-        if selected.startswith("mac") and len(selected) > 3:
-            return "Mac" + selected[3].upper() + selected[4:]
-        if selected.startswith("o'") and len(selected) > 2:
-            return "O'" + selected[2].upper() + selected[3:]
-
-    return selected.title()
+    cleaned = name_parts[0] if is_first else name_parts[-1] if name_parts else ''
+    # McDonald logic
+    if cleaned.lower().startswith('mc') and len(cleaned) > 2:
+        return 'Mc' + cleaned[2:].capitalize()
+    return cleaned.title()
 
 def infer_from_email(first, last, email):
     if pd.isna(email): return first, last
@@ -116,7 +108,6 @@ def infer_from_email(first, last, email):
 def clean_data(df):
     cleaned_df = df.copy()
     changes = 0
-    changed_cells = []
     for i, row in df.iterrows():
         orig_first, orig_last = str(row.get('First Name', '')).strip(), str(row.get('Last Name', '')).strip()
         orig_company = str(row.get('Company', '')).strip()
@@ -124,20 +115,12 @@ def clean_data(df):
         first, last = clean_name(orig_first, True), clean_name(orig_last, False)
         company = clean_company(orig_company)
         first, last = infer_from_email(first, last, email)
-        
-        if first != orig_first:
-            changed_cells.append((i, 'First Name'))
-        if last != orig_last:
-            changed_cells.append((i, 'Last Name'))
-        if company != orig_company:
-            changed_cells.append((i, 'Company'))
-
         if first != orig_first or last != orig_last or company != orig_company: changes += 1
         cleaned_df.at[i, 'First Name'] = first
         cleaned_df.at[i, 'Last Name'] = last
         cleaned_df.at[i, 'Company'] = company
     pct = (changes / len(df)) * 100 if len(df) else 0
-    return cleaned_df, pct, changed_cells
+    return cleaned_df, pct
 
 # --- UI Layout ---
 st.set_page_config(page_title="Cleanr", layout="centered")
@@ -153,12 +136,11 @@ if uploaded_file:
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
     df.rename(columns={'Company Name': 'Company'}, inplace=True)
 
-    cleaned_df, percent_cleaned, changed_cells = clean_data(df)
+    cleaned_df, percent_cleaned = clean_data(df)
 
     st.success("✅ Done! Your data is cleaned and ready to download.")
     st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
 
-    # Send Usage Log
     usage_data = {
         "type": "usage",
         "sheet": "Usage",
@@ -176,28 +158,12 @@ if uploaded_file:
     except:
         pass
 
-    # Create Excel with highlight
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Cleaned Data"
-    ws.append(cleaned_df.columns.tolist())
-
-    highlight_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-    for i, row in cleaned_df.iterrows():
-        row_list = row.tolist()
-        ws.append(row_list)
-        for col_name in cleaned_df.columns:
-            if (i, col_name) in changed_cells:
-                col_idx = cleaned_df.columns.get_loc(col_name) + 1
-                ws.cell(row=i+2, column=col_idx).fill = highlight_fill
-
-    output = BytesIO()
-    wb.save(output)
     st.download_button(
-        label="📥 Download Cleaned Excel File (with highlights)",
-        data=output.getvalue(),
-        file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        label="📥 Download Cleaned CSV",
+        data=cleaned_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name=uploaded_file.name.replace('.csv', '_cleaned.csv'),
+        mime="text/csv",
+        key="download-cleaned",
     )
 
     st.markdown("<div class='section-header'>Preview</div>", unsafe_allow_html=True)
@@ -233,4 +199,3 @@ with st.form(key="feedback_form"):
         else:
             st.warning("✏️ Please write something before submitting.")
 st.markdown("</div>", unsafe_allow_html=True)
-
