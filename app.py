@@ -83,16 +83,26 @@ def clean_company(name):
 
 
 def clean_name(name, is_first=True):
-    if pd.isna(name): return ''
+    if pd.isna(name) or not isinstance(name, str):
+        return ''
     try:
         name = name.encode('latin1').decode('utf-8')
-    except: pass
+    except:
+        pass
     name = fix_text(name)
-    name = unidecode(str(name)).strip()
+    name = unidecode(name).strip()
     name_parts = name.split()
-    cleaned = name_parts[0] if is_first else name_parts[-1] if name_parts else ''
-    if not is_first and cleaned.lower().startswith("mc") and len(cleaned) > 2:
-        return "Mc" + cleaned[2:].capitalize()
+
+    if not name_parts:
+        return ''
+
+    cleaned = name_parts[0] if is_first else name_parts[-1]
+
+    # Handle Mc prefixes properly
+    if cleaned.lower().startswith("mc") and len(cleaned) > 2:
+        cleaned = "Mc" + cleaned[2:].capitalize()
+
+    # Return capitalized name
     return cleaned.title()
 
 
