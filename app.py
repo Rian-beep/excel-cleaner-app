@@ -107,15 +107,23 @@ def clean_name(name, is_first=True):
 
 
 def infer_from_email(first, last, email):
-    if pd.isna(email): return first, last
+    if pd.isna(email):
+        return first, last
     user = email.split('@')[0].lower()
-    if len(last) == 1:
+    
+    if len(last) <= 1:
         pattern = re.escape(first.lower()) + r'[._]?([a-z]+)'
         match = re.match(pattern, user)
-        if match: return first, match.group(1).title()
+        if match:
+            guessed_last = match.group(1).title()
+            cleaned_last = clean_name(guessed_last, is_first=False)
+            return first, cleaned_last
+
         if user.startswith(first[0].lower()):
             guess = user[len(first[0]):]
-            return first, guess.title() if guess else last
+            cleaned_guess = clean_name(guess.title(), is_first=False)
+            return first, cleaned_guess
+
     return first, last
 
 
