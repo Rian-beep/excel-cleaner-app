@@ -97,13 +97,13 @@ def clean_name(name, is_first=True):
         return ''
 
     cleaned = name_parts[0] if is_first else name_parts[-1]
+    cleaned = cleaned.capitalize()
 
-    # Handle Mc prefixes properly
-    if cleaned.lower().startswith("mc") and len(cleaned) > 2:
-        cleaned = "Mc" + cleaned[2:].capitalize()
+    # Handle Mc prefixes correctly: McDonald, McArthur, etc.
+    if cleaned.lower().startswith('mc') and len(cleaned) > 2:
+        cleaned = 'Mc' + cleaned[2].upper() + cleaned[3:]
 
-    # Return capitalized name
-    return cleaned.title()
+    return cleaned
 
 
 def infer_from_email(first, last, email):
