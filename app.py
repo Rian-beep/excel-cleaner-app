@@ -6,6 +6,7 @@ from ftfy import fix_text
 import requests
 import os
 from openpyxl import Workbook
+from openpyxl.styles import PatternFill
 from io import BytesIO
 
 # --- Global Styles ---
@@ -168,7 +169,7 @@ def generate_highlighted_excel(df, mask):
             cell = ws.cell(row=r_idx, column=c_idx, value=value)
             col = df.columns[c_idx - 1]
             if mask.at[r_idx - 2, col]:
-                cell.fill = openpyxl.styles.PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+                cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
     output = BytesIO()
     wb.save(output)
