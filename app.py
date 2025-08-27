@@ -6,20 +6,7 @@ from ftfy import fix_text
 import requests
 import os
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill
-from openpyxl.utils.dataframe import dataframe_to_rows
 from io import BytesIO
-
-# --- Load known clean company names ---
-CLEAN_COMPANY_SET = set()
-if os.path.exists("COMPANY CLEAN LIST.csv"):
-    try:
-        clean_companies = pd.read_csv("COMPANY CLEAN LIST.csv")
-        CLEAN_COMPANY_SET = set(clean_companies.iloc[:, 0].str.strip().str.lower())
-    except:
-        pass
-
-UNKNOWN_COMPANY_LOG_PATH = "unknown_companies_log.csv"
 
 # --- Global Styles ---
 st.markdown("""
@@ -77,67 +64,49 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- Load Known Companies ---
+known_companies = set()
+if os.path.exists("COMPANY CLEAN LIST.csv"):
+    try:
+        company_df = pd.read_csv("COMPANY CLEAN LIST.csv")
+        known_companies = set(company_df['Cleaned Company'].dropna().str.strip().str.lower())
+    except Exception as e:
+        st.error(f"Error loading known companies: {e}")
+
 # --- Cleaning Logic ---
 COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'companies', 'incorporation', 'corporation']
 
+def format_mc_name(name):
+    return re.sub(r'\bMc([a-z])', lambda m: f"Mc{m.group(1).upper()}", name)
 
 def clean_company(name):
     if pd.isna(name): return ''
-    raw = name
-    name = name.strip()
-    name_lower = name.lower()
-
-    if name_lower in CLEAN_COMPANY_SET:
-        return name
-
-    try:
-        name = name.encode('latin1').decode('utf-8')
-    except: pass
+    original_name = name
     name = fix_text(name)
     name = unidecode(str(name))
     name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
     name = re.sub(r'\s{2,}', ' ', name).strip()
 
-    if len(name) <= 4:
-        name = name.upper()
-    else:
-        name = name.title()
+    name_lower = name.lower()
+    if name_lower in known_companies:
+        return name.title() if len(name) > 4 else name.upper()
 
-    # Log unknown companies
-    if name_lower not in CLEAN_COMPANY_SET and raw.strip():
-        try:
-            existing = set()
-            if os.path.exists(UNKNOWN_COMPANY_LOG_PATH):
-                existing_df = pd.read_csv(UNKNOWN_COMPANY_LOG_PATH, header=None)
-                existing = set(existing_df[0].str.strip())
-            if raw.strip() not in existing:
-                with open(UNKNOWN_COMPANY_LOG_PATH, 'a') as f:
-                    f.write(raw.strip() + '\n')
-        except:
-            pass
+    # Log unknown company name
+    with open("unknown_companies_log.csv", "a", encoding="utf-8") as log:
+        log.write(original_name.strip() + "\n")
 
-    return name
-
+    return name.title() if len(name) > 4 else name.upper()
 
 def clean_name(name, is_first=True):
     if pd.isna(name): return ''
-    try:
-        name = name.encode('latin1').decode('utf-8')
-    except: pass
     name = fix_text(name)
     name = unidecode(str(name)).strip()
     name_parts = name.split()
     cleaned = name_parts[0] if is_first else name_parts[-1] if name_parts else ''
-
-    # Fix McLastname format
-    if cleaned.lower().startswith("mc") and len(cleaned) > 2:
-        cleaned = "Mc" + cleaned[2].upper() + cleaned[3:]
-    else:
-        cleaned = cleaned.title()
-
-    return cleaned
-
+    if not is_first:
+        cleaned = format_mc_name(cleaned)
+    return cleaned.title()
 
 def infer_from_email(first, last, email):
     if pd.isna(email): return first, last
@@ -146,23 +115,17 @@ def infer_from_email(first, last, email):
         pattern = re.escape(first.lower()) + r'[._]?([a-z]+)'
         match = re.match(pattern, user)
         if match:
-            inferred_last = match.group(1).title()
-            if inferred_last.lower().startswith("mc") and len(inferred_last) > 2:
-                inferred_last = "Mc" + inferred_last[2].upper() + inferred_last[3:]
-            return first, inferred_last
+            last_name = match.group(1).title()
+            return first, format_mc_name(last_name)
         if user.startswith(first[0].lower()):
             guess = user[len(first[0]):]
-            guess = guess.title()
-            if guess.lower().startswith("mc") and len(guess) > 2:
-                guess = "Mc" + guess[2].upper() + guess[3:]
-            return first, guess
+            return first, format_mc_name(guess.title()) if guess else last
     return first, last
-
 
 def clean_data(df):
     cleaned_df = df.copy()
     changes = 0
-    change_mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+    changed_mask = pd.DataFrame(False, index=df.index, columns=df.columns)
 
     for i, row in df.iterrows():
         orig_first, orig_last = str(row.get('First Name', '')).strip(), str(row.get('Last Name', '')).strip()
@@ -174,36 +137,38 @@ def clean_data(df):
         first, last = infer_from_email(first, last, email)
 
         if first != orig_first:
-            change_mask.at[i, 'First Name'] = True
-        if last != orig_last:
-            change_mask.at[i, 'Last Name'] = True
-        if company != orig_company:
-            change_mask.at[i, 'Company'] = True
-
-        cleaned_df.at[i, 'First Name'] = first
-        cleaned_df.at[i, 'Last Name'] = last
-        cleaned_df.at[i, 'Company'] = company
-
-        if any([first != orig_first, last != orig_last, company != orig_company]):
             changes += 1
+            cleaned_df.at[i, 'First Name'] = first
+            changed_mask.at[i, 'First Name'] = True
 
-    pct = (changes / len(df)) * 100 if len(df) else 0
-    return cleaned_df, pct, change_mask
+        if last != orig_last:
+            changes += 1
+            cleaned_df.at[i, 'Last Name'] = last
+            changed_mask.at[i, 'Last Name'] = True
 
+        if company != orig_company:
+            changes += 1
+            cleaned_df.at[i, 'Company'] = company
+            changed_mask.at[i, 'Company'] = True
+
+    pct = (changes / (len(df)*3)) * 100 if len(df) else 0
+    return cleaned_df, pct, changed_mask
 
 def generate_highlighted_excel(df, mask):
     wb = Workbook()
     ws = wb.active
-    ws.title = "Cleaned Data"
 
-    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), 1):
-        ws.append(row)
-        if r_idx == 1:
-            continue  # header row
-        for c_idx, col in enumerate(df.columns, 1):
-            cell = ws.cell(row=r_idx, column=c_idx)
-            if col in mask.columns and mask.at[r_idx - 2, col]:
-                cell.fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
+    # Header
+    for col_idx, col in enumerate(df.columns, 1):
+        ws.cell(row=1, column=col_idx).value = col
+
+    # Data rows
+    for r_idx, row in enumerate(df.itertuples(index=False), 2):
+        for c_idx, value in enumerate(row, 1):
+            cell = ws.cell(row=r_idx, column=c_idx, value=value)
+            col = df.columns[c_idx - 1]
+            if mask.at[r_idx - 2, col]:
+                cell.fill = openpyxl.styles.PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
     output = BytesIO()
     wb.save(output)
@@ -226,15 +191,15 @@ if uploaded_file:
     cleaned_df, percent_cleaned, changed_mask = clean_data(df)
 
     st.success("✅ Done! Your data is cleaned and ready to download.")
-    st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
+    st.info(f"📊 {percent_cleaned:.1f}% of cells were cleaned or updated.")
 
-    # Send Usage Log
+    # Log usage
     usage_data = {
         "type": "usage",
         "sheet": "Usage",
         "filename": uploaded_file.name,
         "rows": len(df),
-        "cleaned": int((percent_cleaned / 100) * len(df)),
+        "cleaned": int((percent_cleaned / 100) * len(df) * 3),
         "percent_cleaned": round(percent_cleaned, 1),
         "time_saved": round((int((percent_cleaned / 100) * len(df)) * 7.5) / 60, 1)
     }
@@ -249,11 +214,10 @@ if uploaded_file:
     excel_file = generate_highlighted_excel(cleaned_df, changed_mask)
 
     st.download_button(
-        label="📥 Download Cleaned Excel File",
+        label="📥 Download Cleaned Excel",
         data=excel_file,
         file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download-cleaned-excel",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
     st.markdown("<div class='section-header'>Preview</div>", unsafe_allow_html=True)
