@@ -4,8 +4,18 @@ import re
 from unidecode import unidecode
 from ftfy import fix_text
 import requests
-from io import BytesIO
-import openpyxl
+import io
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill
+
+# --- Load Company Directory ---
+try:
+    company_directory_df = pd.read_csv("company_directory.csv")
+    company_directory = dict(zip(company_directory_df['Raw Company'].str.strip().str.lower(),
+                                 company_directory_df['Cleaned Company'].str.strip()))
+except Exception as e:
+    company_directory = {}
+    st.warning(f"Company directory could not be loaded: {e}")
 
 # --- Global Styles ---
 st.markdown("""
@@ -63,14 +73,37 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Load Known Clean Company List ---
-try:
-    known_company_df = pd.read_csv("COMPANY CLEAN LIST.csv")
-    company_dict = {row["Raw Company"].strip().lower(): row["Cleaned Company"].strip() for _, row in known_company_df.iterrows()}
-except Exception as e:
-    st.warning(f"⚠️ Couldn't load known company list: {e}")
-    company_dict = {}
+COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'companies', 'incorporation', 'corporation']
 
+def clean_company(name):
+    if pd.isna(name): return ''
+    raw_name = name.strip().lower()
+    if raw_name in company_directory:
+        return company_directory[raw_name]
+
+    try:
+        name = name.encode('latin1').decode('utf-8')
+    except: pass
+    name = fix_text(name)
+    name = unidecode(str(name))
+    name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
+    name = re.sub(r'\s{2,}', ' ', name)
+    name = name.strip()
+
+    # Log unknown company
+    try:
+        unknown_log_df = pd.read_csv("unknown_companies_log.csv")
+    except:
+        unknown_log_df = pd.DataFrame(columns=['Raw Company'])
+    if raw_name not in unknown_log_df['Raw Company'].str.lower().values:
+        unknown_log_df = pd.concat([unknown_log_df, pd.DataFrame({'Raw Company': [name]})], ignore_index=True)
+        unknown_log_df.drop_duplicates(subset='Raw Company', inplace=True)
+        unknown_log_df.to_csv("unknown_companies_log.csv", index=False)
+
+    return name.upper() if len(name) <= 4 else name.title()
+
+# (Rest of the code remains unchanged.)
 # --- Cleaning Logic ---
 COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'companies', 'incorporation', 'corporation']
 
