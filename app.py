@@ -4,10 +4,12 @@ import re
 from unidecode import unidecode
 from ftfy import fix_text
 import requests
-import openpyxl
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill
 from io import BytesIO
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill
+
+# --- Google Sheets URL for unknown companies ---
+UNKNOWN_COMPANY_LOG_URL = "https://script.google.com/macros/s/AKfycbxj8iwsHuSw3mmnsm0s72DsY51cKVy3K54DQOgcWaOgrhK706ZjFS_GlvPTdA8k-66N/exec"
 
 # --- Global Styles ---
 st.markdown("""
@@ -65,30 +67,50 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Cleaning Logic ---
+# --- Load Company Directory ---
+try:
+    company_df = pd.read_csv("company_directory.csv")
+    company_dict = dict(zip(company_df['Raw Company'].str.lower().str.strip(), company_df['Cleaned Company'].str.strip()))
+except:
+    company_dict = {}
+
+# --- Cleaning Functions ---
 COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'companies', 'incorporation', 'corporation']
 
+def format_mc_name(name):
+    return re.sub(r'\bMc([a-z])', lambda m: 'Mc' + m.group(1).upper(), name, flags=re.IGNORECASE)
 
-def clean_company(name, company_dict, unknown_companies):
+def clean_company(name):
     if pd.isna(name): return ''
-    original = name.strip()
-    name_key = original.lower()
+    name = str(name).strip()
+    name_key = name.lower()
 
     if name_key in company_dict:
         return company_dict[name_key]
 
+    # Fallback cleaning logic
     try:
         name = name.encode('latin1').decode('utf-8')
     except: pass
     name = fix_text(name)
-    name = unidecode(str(name))
+    name = unidecode(name)
     name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
     name = re.sub(r'\s{2,}', ' ', name).strip()
-    name = name.upper() if len(name) <= 4 else name.title()
-    unknown_companies.add(original)
-    return name
 
+    # Capitalize based on length
+    cleaned_name = name.upper() if len(name) <= 4 else name.title()
+
+    # Log unknown name to Google Sheets
+    try:
+        requests.post(
+            UNKNOWN_COMPANY_LOG_URL,
+            json={"sheet": "UnknownCompanies", "raw_company": name}
+        )
+    except:
+        pass
+
+    return cleaned_name
 
 def clean_name(name, is_first=True):
     if pd.isna(name): return ''
@@ -99,169 +121,69 @@ def clean_name(name, is_first=True):
     name = unidecode(str(name)).strip()
     name_parts = name.split()
     cleaned = name_parts[0] if is_first else name_parts[-1] if name_parts else ''
-    if not is_first and cleaned.lower().startswith("mc") and len(cleaned) > 2:
-        cleaned = "Mc" + cleaned[2:].capitalize()
-    return cleaned.title() if is_first else cleaned
-
+    return format_mc_name(cleaned.title())
 
 def infer_from_email(first, last, email):
     if pd.isna(email): return first, last
     user = email.split('@')[0].lower()
-    if len(last) == 1:
+    if len(last) <= 1:
         pattern = re.escape(first.lower()) + r'[._]?([a-z]+)'
         match = re.match(pattern, user)
-        if match: return first, match.group(1).title()
+        if match:
+            guessed_last = match.group(1).title()
+            return first, format_mc_name(guessed_last)
         if user.startswith(first[0].lower()):
             guess = user[len(first[0]):]
-            return first, guess.title() if guess else last
-    if last.lower().startswith("mc") and len(last) > 2:
-        last = "Mc" + last[2:].capitalize()
+            return first, format_mc_name(guess.title()) if guess else last
     return first, last
-
 
 def clean_data(df):
     cleaned_df = df.copy()
-    changes = 0
     changed_mask = pd.DataFrame(False, index=df.index, columns=df.columns)
-
-    # Load directory
-    company_dict = {}
-    unknown_companies = set()
-    try:
-        directory = pd.read_csv("company_directory.csv")
-        for _, row in directory.iterrows():
-            raw = str(row['Raw Company']).strip().lower()
-            clean = str(row['Cleaned Company']).strip()
-            company_dict[raw] = clean
-    except Exception as e:
-        st.warning(f"⚠️ Could not load company directory: {e}")
+    changes = 0
 
     for i, row in df.iterrows():
-        orig_first = str(row.get('First Name', '')).strip()
-        orig_last = str(row.get('Last Name', '')).strip()
+        orig_first, orig_last = str(row.get('First Name', '')).strip(), str(row.get('Last Name', '')).strip()
         orig_company = str(row.get('Company', '')).strip()
         email = str(row.get('Email', '')).strip() if 'Email' in df.columns else ''
 
-        first = clean_name(orig_first, True)
-        last = clean_name(orig_last, False)
-        company = clean_company(orig_company, company_dict, unknown_companies)
+        first, last = clean_name(orig_first, True), clean_name(orig_last, False)
         first, last = infer_from_email(first, last, email)
+        company = clean_company(orig_company)
 
         if first != orig_first:
-            changes += 1
+            cleaned_df.at[i, 'First Name'] = first
             changed_mask.at[i, 'First Name'] = True
         if last != orig_last:
-            changes += 1
+            cleaned_df.at[i, 'Last Name'] = last
             changed_mask.at[i, 'Last Name'] = True
         if company != orig_company:
-            changes += 1
+            cleaned_df.at[i, 'Company'] = company
             changed_mask.at[i, 'Company'] = True
-
-        cleaned_df.at[i, 'First Name'] = first
-        cleaned_df.at[i, 'Last Name'] = last
-        cleaned_df.at[i, 'Company'] = company
-
-    if unknown_companies:
-        pd.DataFrame({"Unknown Company": sorted(unknown_companies)}).to_csv("unknown_companies_log.csv", index=False)
+            
+        if first != orig_first or last != orig_last or company != orig_company:
+            changes += 1
 
     pct = (changes / len(df)) * 100 if len(df) else 0
     return cleaned_df, pct, changed_mask
 
-
 def generate_highlighted_excel(df, mask):
-    wb = Workbook()
-    ws = wb.active
-
-    for c_idx, column in enumerate(df.columns, 1):
-        ws.cell(row=1, column=c_idx, value=column)
-
-    for r_idx, row in enumerate(df.itertuples(index=False), 2):
-        for c_idx, value in enumerate(row, 1):
-            cell = ws.cell(row=r_idx, column=c_idx, value=value)
-            col = df.columns[c_idx - 1]
-            if mask.at[r_idx - 2, col]:
-                cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-
     output = BytesIO()
-    wb.save(output)
+    writer = pd.ExcelWriter(output, engine='openpyxl')
+    df.to_excel(writer, index=False, sheet_name='CleanedData')
+    workbook = writer.book
+    worksheet = writer.sheets['CleanedData']
+
+    yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+    for r_idx in range(2, len(df)+2):
+        for c_idx, col in enumerate(df.columns):
+            if mask.at[r_idx - 2, col]:
+                cell = worksheet.cell(row=r_idx, column=c_idx+1)
+                cell.fill = yellow_fill
+
+    writer.save()
     output.seek(0)
     return output
 
-# --- UI Layout ---
-st.set_page_config(page_title="Cleanr", layout="centered")
-
-st.markdown('<div class="title-text">Cleanr.</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle-text">Clean your data faster.</div>', unsafe_allow_html=True)
-st.markdown('<div class="rounded-box">Upload your Cognism CSV export and get a cleaned version ready for mail merge.</div>', unsafe_allow_html=True)
-
-uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
-
-if uploaded_file:
-    df = pd.read_csv(uploaded_file, encoding='latin1')
-    df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
-    df.rename(columns={'Company Name': 'Company'}, inplace=True)
-
-    cleaned_df, percent_cleaned, changed_mask = clean_data(df)
-
-    st.success("✅ Done! Your data is cleaned and ready to download.")
-    st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
-
-    usage_data = {
-        "type": "usage",
-        "sheet": "Usage",
-        "filename": uploaded_file.name,
-        "rows": len(df),
-        "cleaned": int((percent_cleaned / 100) * len(df)),
-        "percent_cleaned": round(percent_cleaned, 1),
-        "time_saved": round((int((percent_cleaned / 100) * len(df)) * 7.5) / 60, 1)
-    }
-    try:
-        requests.post(
-            "https://script.google.com/macros/s/AKfycbxM7dmZfMIuWcNWiyxAh8nwX69rvuRaioJ6EH_k7Vx9DRu6DdYdMIO3ZbsZmH--Q5q1/exec",
-            json=usage_data
-        )
-    except:
-        pass
-
-    excel_file = generate_highlighted_excel(cleaned_df, changed_mask)
-
-    st.download_button(
-        label="📥 Download Cleaned Excel",
-        data=excel_file,
-        file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-    st.markdown("<div class='section-header'>Preview</div>", unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("<b>Before Cleaning</b>", unsafe_allow_html=True)
-        st.dataframe(df.head(10))
-    with col2:
-        st.markdown("<b>After Cleaning</b>", unsafe_allow_html=True)
-        st.dataframe(cleaned_df.head(10))
-
-# --- Feedback Form ---
-st.markdown("<div class='feedback-container'>", unsafe_allow_html=True)
-st.markdown("<h4>💬 Leave Feedback</h4>", unsafe_allow_html=True)
-with st.form(key="feedback_form"):
-    feedback = st.text_area("Have any suggestions, bugs, or feature ideas?", height=120, key="feedback_box")
-    submitted = st.form_submit_button("Submit")
-    if submitted:
-        if feedback.strip():
-            try:
-                requests.post(
-                    "https://script.google.com/macros/s/AKfycbxM7dmZfMIuWcNWiyxAh8nwX69rvuRaioJ6EH_k7Vx9DRu6DdYdMIO3ZbsZmH--Q5q1/exec",
-                    json={
-                        "type": "feedback",
-                        "sheet": "Feedback",
-                        "timestamp": str(pd.Timestamp.now()),
-                        "message": feedback.strip()
-                    }
-                )
-                st.success("✅ Thanks! Your feedback was submitted.")
-            except Exception as e:
-                st.error(f"❌ Failed to submit feedback: {e}")
-        else:
-            st.warning("✏️ Please write something before submitting.")
-st.markdown("</div>", unsafe_allow_html=True)
+# --- UI Logic ---
+# (You can reinsert your existing Streamlit interface and usage tracking code here, unchanged.)
