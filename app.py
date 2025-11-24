@@ -9,6 +9,7 @@ from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
+import random
 
 # --- Page Config ---
 st.set_page_config(page_title="Cleanr", layout="centered")
@@ -86,17 +87,15 @@ COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'companies', 'inc
 
 
 def clean_company(name):
-    """Clean company name, no logging of unknown companies."""
+    """Clean company name, using known mappings if available."""
     if pd.isna(name):
         return ''
     raw_name = name.strip()
     name_key = raw_name.lower()
 
-    # If we already know the company, return the cleaned version
     if name_key in company_dict:
         return company_dict[name_key]
 
-    # Fix encoding issues
     try:
         name = name.encode('latin1').decode('utf-8')
     except Exception:
@@ -104,25 +103,20 @@ def clean_company(name):
     name = fix_text(name)
     name = unidecode(str(name))
 
-    # Remove common suffixes
     name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
-
-    # Keep letters, numbers, spaces and hyphens
     name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
     name = re.sub(r'\s{2,}', ' ', name).strip()
 
-    # Formatting
     if len(name) <= 4:
         name = name.upper()
     else:
         name = name.title()
 
-    # No logging of unknown companies anymore
     return name
 
 
 def clean_first_name(name):
-    """Clean first name and keep behaviour of taking the first token."""
+    """Clean first name and take the first token."""
     if pd.isna(name):
         return ''
     try:
@@ -141,7 +135,7 @@ def clean_first_name(name):
 def clean_last_name(name):
     """
     Clean last name without changing its structure.
-    Keep full string, just fix encoding, spacing and casing.
+    Keep full string, fix encoding, spacing and casing.
     """
     if pd.isna(name):
         return ''
@@ -169,9 +163,10 @@ def clean_last_name(name):
 def infer_last_from_email(first_name, email):
     """
     Infer last name from email ONLY if last name is missing.
-    Patterns handled:
+    Handles:
       - firstname.lastname@...
       - firstname_lastname@...
+      - firstname-lastname@...
       - fLastname@...
     """
     if not email or pd.isna(email) or not first_name:
@@ -205,21 +200,19 @@ def clean_data(df):
         orig_company = str(row.get('Company', '')).strip()
         email = str(row.get('Email', '')).strip() if 'Email' in df.columns else ''
 
-        # Clean names
+        # First name
         first = clean_first_name(orig_first)
 
-        # If last name is present, just clean it
+        # Last name: clean if present, infer from email if missing
         if orig_last:
             last = clean_last_name(orig_last)
         else:
-            # Last name missing: try inferring from email
             inferred_last = infer_last_from_email(first, email)
             last = clean_last_name(inferred_last) if inferred_last else ''
 
-        # Clean company
+        # Company
         company = clean_company(orig_company)
 
-        # Track and apply changes
         if first != orig_first:
             changed_mask.at[i, 'First Name'] = True
             cleaned_df.at[i, 'First Name'] = first
@@ -239,18 +232,71 @@ def clean_data(df):
     return cleaned_df, pct, changed_mask
 
 
-def generate_highlighted_excel(df, mask):
+def split_into_lists_by_company(df, max_lists=4):
+    """
+    Split contacts into up to max_lists lists so that people
+    from the same company are spread across different lists.
+    Returns a list of lists of row indices.
+    """
+    if 'Company' not in df.columns or df.empty:
+        return [list(df.index)]
+
+    # Group indices by company
+    company_groups = {}
+    for idx, company in df['Company'].items():
+        company_groups.setdefault(company, []).append(idx)
+
+    max_count = max(len(indices) for indices in company_groups.values())
+    num_lists = min(max_lists, max_count if max_count > 0 else 1)
+
+    batches = [[] for _ in range(num_lists)]
+
+    for company, indices in company_groups.items():
+        # randomise order within company so distribution is less predictable
+        random.shuffle(indices)
+        for i, idx in enumerate(indices):
+            batches[i % num_lists].append(idx)
+
+    # Only return non-empty lists
+    return [batch for batch in batches if batch]
+
+
+def generate_highlighted_excel_with_splits(df, mask, split_batches, max_lists=4):
+    """
+    Create an Excel file with:
+      - Sheet "All Contacts": full cleaned data with highlights.
+      - Up to max_lists sheets "List 1" ... "List N": split by company.
+    """
     wb = Workbook()
-    ws = wb.active
     yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+    # ---- Sheet 1: All Contacts ----
+    ws_all = wb.active
+    ws_all.title = "All Contacts"
 
     for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
-            cell = ws.cell(row=r_idx, column=c_idx, value=value)
+            cell = ws_all.cell(row=r_idx, column=c_idx, value=value)
             if r_idx > 1:
                 col = df.columns[c_idx - 1]
-                if (col in mask.columns) and ((r_idx - 2) in mask.index) and mask.at[r_idx - 2, col]:
+                orig_idx = df.index[r_idx - 2]  # r_idx 2 -> index 0, etc. (RangeIndex)
+                if (col in mask.columns) and mask.at[orig_idx, col]:
                     cell.fill = yellow_fill
+
+    # ---- Additional sheets: List 1..N ----
+    for list_num, indices in enumerate(split_batches[:max_lists], start=1):
+        ws = wb.create_sheet(title=f"List {list_num}")
+        sub_df = df.loc[indices]
+        sub_mask = mask.loc[indices]
+
+        for r_idx, row in enumerate(dataframe_to_rows(sub_df, index=False, header=True), 1):
+            for c_idx, value in enumerate(row, 1):
+                cell = ws.cell(row=r_idx, column=c_idx, value=value)
+                if r_idx > 1:
+                    col = sub_df.columns[c_idx - 1]
+                    orig_idx = sub_df.index[r_idx - 2]
+                    if (col in sub_mask.columns) and sub_mask.at[orig_idx, col]:
+                        cell.fill = yellow_fill
 
     output = BytesIO()
     wb.save(output)
@@ -271,10 +317,23 @@ if uploaded_file:
 
     cleaned_df, percent_cleaned, changed_mask = clean_data(df)
 
+    # Split into up to 4 lists by company
+    split_batches = split_into_lists_by_company(cleaned_df, max_lists=4)
+
     st.success("✅ Done! Your data is cleaned and ready to download.")
     st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
 
-    # Send Usage Log (kept, with timeout so it does not slow you down)
+    if len(split_batches) > 1:
+        st.info(
+            "📧 To help avoid spam filters, your cleaned data has been split into "
+            f"{len(split_batches)} sending lists (maximum 4)."
+        )
+        for i, batch in enumerate(split_batches, start=1):
+            st.write(f"List {i}: {len(batch)} contacts")
+    else:
+        st.write("📧 All contacts are in a single list (no companies with multiple contacts).")
+
+    # Send Usage Log
     cleaned_rows = int((percent_cleaned / 100) * len(df))
     usage_data = {
         "type": "usage",
@@ -294,10 +353,16 @@ if uploaded_file:
     except Exception:
         pass
 
-    excel_file = generate_highlighted_excel(cleaned_df, changed_mask)
+    # Excel with All Contacts + up to 4 split lists
+    excel_file = generate_highlighted_excel_with_splits(
+        cleaned_df,
+        changed_mask,
+        split_batches,
+        max_lists=4
+    )
 
     st.download_button(
-        label="📥 Download Cleaned File",
+        label="📥 Download Cleaned File (with split lists)",
         data=excel_file,
         file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
