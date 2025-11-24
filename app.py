@@ -5,6 +5,7 @@ from unidecode import unidecode
 from ftfy import fix_text
 import requests
 import os
+import csv
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
@@ -93,9 +94,11 @@ def clean_company(name):
     raw_name = name.strip()
     name_key = raw_name.lower()
 
+    # 1 - Check the list of clean names
     if name_key in company_dict:
         return company_dict[name_key]
 
+    # 2 - If it's not there, clean the company name as usual
     try:
         name = name.encode('latin1').decode('utf-8')
     except Exception:
@@ -189,10 +192,37 @@ def infer_last_from_email(first_name, email):
     return ''
 
 
+def save_unknown_companies_for_review(unknown_map, review_file="company_review.csv"):
+    """
+    3 - Save unknown companies to a review list.
+    unknown_map: dict[key_lower] = (raw_name, cleaned_name)
+    """
+    if not unknown_map:
+        return
+
+    # We only write once per run, so this stays instant.
+    file_exists = os.path.exists(review_file)
+    # Deduplicate within this run
+    unique_pairs = {(raw, cleaned) for (raw, cleaned) in unknown_map.values() if raw and cleaned}
+
+    if not unique_pairs:
+        return
+
+    with open(review_file, "a", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["Raw Company", "Suggested Cleaned Company"])
+        for raw, cleaned in sorted(unique_pairs):
+            writer.writerow([raw, cleaned])
+
+
 def clean_data(df):
     cleaned_df = df.copy()
     changes = 0
     changed_mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+
+    # For collecting unknown companies in this file
+    unknown_companies = {}  # key_lower -> (raw, cleaned)
 
     for i, row in df.iterrows():
         orig_first = str(row.get('First Name', '')).strip()
@@ -213,6 +243,12 @@ def clean_data(df):
         # Company
         company = clean_company(orig_company)
 
+        # Track company for review if it is not in known list
+        if orig_company:
+            key_lower = orig_company.strip().lower()
+            if key_lower not in company_dict and company:
+                unknown_companies[key_lower] = (orig_company, company)
+
         if first != orig_first:
             changed_mask.at[i, 'First Name'] = True
             cleaned_df.at[i, 'First Name'] = first
@@ -227,6 +263,9 @@ def clean_data(df):
             changed_mask.at[i, 'Company'] = True
             cleaned_df.at[i, 'Company'] = company
             changes += 1
+
+    # Save unknown companies to review list (once, fast)
+    save_unknown_companies_for_review(unknown_companies)
 
     pct = (changes / len(df)) * 100 if len(df) else 0
     return cleaned_df, pct, changed_mask
@@ -416,3 +455,4 @@ with st.form(key="feedback_form"):
         else:
             st.warning("✏️ Please write something before submitting.")
 st.markdown("</div>", unsafe_allow_html=True)
+
