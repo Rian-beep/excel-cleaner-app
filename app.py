@@ -241,7 +241,6 @@ def split_into_lists_by_company(df, max_lists=4):
     if 'Company' not in df.columns or df.empty:
         return [list(df.index)]
 
-    # Group indices by company
     company_groups = {}
     for idx, company in df['Company'].items():
         company_groups.setdefault(company, []).append(idx)
@@ -252,20 +251,19 @@ def split_into_lists_by_company(df, max_lists=4):
     batches = [[] for _ in range(num_lists)]
 
     for company, indices in company_groups.items():
-        # randomise order within company so distribution is less predictable
-        random.shuffle(indices)
+        random.shuffle(indices)  # randomise order within company
         for i, idx in enumerate(indices):
             batches[i % num_lists].append(idx)
 
-    # Only return non-empty lists
     return [batch for batch in batches if batch]
 
 
-def generate_highlighted_excel_with_splits(df, mask, split_batches, max_lists=4):
+def generate_highlighted_excel_with_splits(df, mask, split_batches=None, max_lists=4):
     """
     Create an Excel file with:
       - Sheet "All Contacts": full cleaned data with highlights.
-      - Up to max_lists sheets "List 1" ... "List N": split by company.
+      - If split_batches is provided and not empty:
+          up to max_lists sheets "List 1" ... "List N": split by company.
     """
     wb = Workbook()
     yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
@@ -279,24 +277,25 @@ def generate_highlighted_excel_with_splits(df, mask, split_batches, max_lists=4)
             cell = ws_all.cell(row=r_idx, column=c_idx, value=value)
             if r_idx > 1:
                 col = df.columns[c_idx - 1]
-                orig_idx = df.index[r_idx - 2]  # r_idx 2 -> index 0, etc. (RangeIndex)
+                orig_idx = df.index[r_idx - 2]
                 if (col in mask.columns) and mask.at[orig_idx, col]:
                     cell.fill = yellow_fill
 
-    # ---- Additional sheets: List 1..N ----
-    for list_num, indices in enumerate(split_batches[:max_lists], start=1):
-        ws = wb.create_sheet(title=f"List {list_num}")
-        sub_df = df.loc[indices]
-        sub_mask = mask.loc[indices]
+    # ---- Additional sheets: List 1..N (only if splitting enabled) ----
+    if split_batches:
+        for list_num, indices in enumerate(split_batches[:max_lists], start=1):
+            ws = wb.create_sheet(title=f"List {list_num}")
+            sub_df = df.loc[indices]
+            sub_mask = mask.loc[indices]
 
-        for r_idx, row in enumerate(dataframe_to_rows(sub_df, index=False, header=True), 1):
-            for c_idx, value in enumerate(row, 1):
-                cell = ws.cell(row=r_idx, column=c_idx, value=value)
-                if r_idx > 1:
-                    col = sub_df.columns[c_idx - 1]
-                    orig_idx = sub_df.index[r_idx - 2]
-                    if (col in sub_mask.columns) and sub_mask.at[orig_idx, col]:
-                        cell.fill = yellow_fill
+            for r_idx, row in enumerate(dataframe_to_rows(sub_df, index=False, header=True), 1):
+                for c_idx, value in enumerate(row, 1):
+                    cell = ws.cell(row=r_idx, column=c_idx, value=value)
+                    if r_idx > 1:
+                        col = sub_df.columns[c_idx - 1]
+                        orig_idx = sub_df.index[r_idx - 2]
+                        if (col in sub_mask.columns) and sub_mask.at[orig_idx, col]:
+                            cell.fill = yellow_fill
 
     output = BytesIO()
     wb.save(output)
@@ -308,6 +307,18 @@ st.markdown('<div class="title-text">Cleanr.</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle-text">Clean your data faster.</div>', unsafe_allow_html=True)
 st.markdown('<div class="rounded-box">Upload your Cognism CSV export and get a cleaned version ready for mail merge.</div>', unsafe_allow_html=True)
 
+# Toggle for list splitting
+split_enabled = st.checkbox(
+    "Split contacts from the same company into separate sending lists",
+    value=True,
+    help="When enabled, contacts from the same organisation are spread across up to four lists so you are not emailing multiple people at the same company seconds apart. This can improve deliverability and reduce the chance of your campaign hitting spam filters."
+)
+
+st.caption(
+    "Tip: Sending many emails to the same company in a short burst can look suspicious to spam filters. "
+    "Splitting contacts across several lists helps smooth out sends and protect deliverability."
+)
+
 uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
 
 if uploaded_file:
@@ -317,21 +328,24 @@ if uploaded_file:
 
     cleaned_df, percent_cleaned, changed_mask = clean_data(df)
 
-    # Split into up to 4 lists by company
-    split_batches = split_into_lists_by_company(cleaned_df, max_lists=4)
-
     st.success("✅ Done! Your data is cleaned and ready to download.")
     st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
 
-    if len(split_batches) > 1:
-        st.info(
-            "📧 To help avoid spam filters, your cleaned data has been split into "
-            f"{len(split_batches)} sending lists (maximum 4)."
-        )
-        for i, batch in enumerate(split_batches, start=1):
-            st.write(f"List {i}: {len(batch)} contacts")
+    split_batches = None
+
+    if split_enabled:
+        split_batches = split_into_lists_by_company(cleaned_df, max_lists=4)
+        if len(split_batches) > 1:
+            st.info(
+                "📧 Splitting is enabled. Your cleaned data has been split into "
+                f"{len(split_batches)} sending lists (maximum 4) to help protect deliverability."
+            )
+            for i, batch in enumerate(split_batches, start=1):
+                st.write(f"List {i}: {len(batch)} contacts")
+        else:
+            st.write("📧 Splitting is enabled, but there are no companies with multiple contacts. All contacts are effectively in a single list.")
     else:
-        st.write("📧 All contacts are in a single list (no companies with multiple contacts).")
+        st.info("📧 Splitting is turned off. All contacts will be kept in a single list.")
 
     # Send Usage Log
     cleaned_rows = int((percent_cleaned / 100) * len(df))
@@ -353,16 +367,16 @@ if uploaded_file:
     except Exception:
         pass
 
-    # Excel with All Contacts + up to 4 split lists
+    # Excel with All Contacts + optional split lists
     excel_file = generate_highlighted_excel_with_splits(
         cleaned_df,
         changed_mask,
-        split_batches,
+        split_batches=split_batches if split_enabled else None,
         max_lists=4
     )
 
     st.download_button(
-        label="📥 Download Cleaned File (with split lists)",
+        label="📥 Download Cleaned File",
         data=excel_file,
         file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -402,4 +416,3 @@ with st.form(key="feedback_form"):
         else:
             st.warning("✏️ Please write something before submitting.")
 st.markdown("</div>", unsafe_allow_html=True)
-
