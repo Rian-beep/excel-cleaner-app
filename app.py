@@ -247,36 +247,54 @@ def clean_job_title(title):
 def clean_company(name):
     """Clean company name, using known mappings if available."""
     try:
-        if pd.isna(name) or name == '' or str(name).lower() in ['nan', 'none', 'null']:
+        # Handle None, NaN, or empty values
+        if name is None or pd.isna(name) or name == '':
             return ''
-        raw_name = str(name).strip()
-        if not raw_name:
+        
+        # Convert to string and check for string representations of null
+        name_str = str(name).strip()
+        if not name_str or name_str.lower() in ['nan', 'none', 'null', '']:
             return ''
-        name_key = raw_name.lower()
+        
+        name_key = name_str.lower()
 
+        # Check company dictionary first
         if name_key in company_dict:
             return company_dict[name_key]
 
+        # Try to fix encoding issues
         try:
-            name = name.encode('latin1').decode('utf-8')
-        except Exception:
+            name_str = name_str.encode('latin1').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError, AttributeError):
             pass
-        name = fix_text(name)
-        name = unidecode(str(name))
+        
+        # Fix text encoding
+        name_str = fix_text(name_str)
+        name_str = unidecode(name_str)
 
-        name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
-        name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
-        name = re.sub(r'\s{2,}', ' ', name).strip()
+        # Remove common suffixes
+        name_str = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name_str, flags=re.IGNORECASE)
+        # Remove special characters except spaces, hyphens, and alphanumeric
+        name_str = re.sub(r'[^A-Za-z0-9\s\-]', '', name_str)
+        # Clean up multiple spaces
+        name_str = re.sub(r'\s{2,}', ' ', name_str).strip()
 
-        if len(name) <= 4:
-            name = name.upper()
+        if not name_str:
+            return ''
+
+        # Format based on length
+        if len(name_str) <= 4:
+            name_str = name_str.upper()
         else:
-            name = name.title()
+            name_str = name_str.title()
 
-        return name
+        return name_str
     except Exception as e:
-        # Return original if cleaning fails
-        return str(name) if name else ''
+        # Return original as string if cleaning fails
+        try:
+            return str(name).strip() if name else ''
+        except:
+            return ''
 
 
 def clean_first_name(name):
@@ -432,15 +450,30 @@ def clean_data(df, options):
     job_title_col = options.get('job_title_col', 'Job Title')
     
     for i, row in df.iterrows():
-        # Handle NaN values properly
-        first_val = row.get('First Name', '')
-        last_val = row.get('Last Name', '')
-        company_val = row.get('Company', '')
+        # Handle NaN values properly - use safe column access
+        try:
+            first_val = row['First Name'] if 'First Name' in df.columns else ''
+        except (KeyError, IndexError):
+            first_val = ''
+        
+        try:
+            last_val = row['Last Name'] if 'Last Name' in df.columns else ''
+        except (KeyError, IndexError):
+            last_val = ''
+        
+        try:
+            company_val = row['Company'] if 'Company' in df.columns else ''
+        except (KeyError, IndexError):
+            company_val = ''
+        
+        try:
+            email_val = row[email_col] if email_col in df.columns else ''
+        except (KeyError, IndexError):
+            email_val = ''
         
         orig_first = '' if pd.isna(first_val) else str(first_val).strip()
         orig_last = '' if pd.isna(last_val) else str(last_val).strip()
         orig_company = '' if pd.isna(company_val) else str(company_val).strip()
-        email_val = row.get(email_col, '') if email_col in df.columns else ''
         email = '' if pd.isna(email_val) else str(email_val).strip()
         
         # First name
@@ -464,7 +497,11 @@ def clean_data(df, options):
         
         # Company
         if options.get('clean_company', True):
-            company = clean_company(orig_company)
+            try:
+                company = clean_company(orig_company)
+            except Exception as e:
+                # If cleaning fails, use original value
+                company = orig_company if orig_company else ''
         else:
             company = orig_company
         
