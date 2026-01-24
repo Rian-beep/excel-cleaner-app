@@ -246,31 +246,37 @@ def clean_job_title(title):
 
 def clean_company(name):
     """Clean company name, using known mappings if available."""
-    if pd.isna(name):
-        return ''
-    raw_name = name.strip()
-    name_key = raw_name.lower()
-
-    if name_key in company_dict:
-        return company_dict[name_key]
-
     try:
-        name = name.encode('latin1').decode('utf-8')
-    except Exception:
-        pass
-    name = fix_text(name)
-    name = unidecode(str(name))
+        if pd.isna(name) or name == '' or str(name).lower() in ['nan', 'none', 'null']:
+            return ''
+        raw_name = str(name).strip()
+        if not raw_name:
+            return ''
+        name_key = raw_name.lower()
 
-    name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
-    name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
-    name = re.sub(r'\s{2,}', ' ', name).strip()
+        if name_key in company_dict:
+            return company_dict[name_key]
 
-    if len(name) <= 4:
-        name = name.upper()
-    else:
-        name = name.title()
+        try:
+            name = name.encode('latin1').decode('utf-8')
+        except Exception:
+            pass
+        name = fix_text(name)
+        name = unidecode(str(name))
 
-    return name
+        name = re.sub(r'\b(?:' + '|'.join(COMMON_SUFFIXES) + r')\b', '', name, flags=re.IGNORECASE)
+        name = re.sub(r'[^A-Za-z0-9\s\-]', '', name)
+        name = re.sub(r'\s{2,}', ' ', name).strip()
+
+        if len(name) <= 4:
+            name = name.upper()
+        else:
+            name = name.title()
+
+        return name
+    except Exception as e:
+        # Return original if cleaning fails
+        return str(name) if name else ''
 
 
 def clean_first_name(name):
@@ -426,10 +432,16 @@ def clean_data(df, options):
     job_title_col = options.get('job_title_col', 'Job Title')
     
     for i, row in df.iterrows():
-        orig_first = str(row.get('First Name', '')).strip()
-        orig_last = str(row.get('Last Name', '')).strip()
-        orig_company = str(row.get('Company', '')).strip()
-        email = str(row.get(email_col, '')).strip() if email_col in df.columns else ''
+        # Handle NaN values properly
+        first_val = row.get('First Name', '')
+        last_val = row.get('Last Name', '')
+        company_val = row.get('Company', '')
+        
+        orig_first = '' if pd.isna(first_val) else str(first_val).strip()
+        orig_last = '' if pd.isna(last_val) else str(last_val).strip()
+        orig_company = '' if pd.isna(company_val) else str(company_val).strip()
+        email_val = row.get(email_col, '') if email_col in df.columns else ''
+        email = '' if pd.isna(email_val) else str(email_val).strip()
         
         # First name
         if options.get('clean_names', True):
