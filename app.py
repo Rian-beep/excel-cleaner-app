@@ -7,12 +7,27 @@ import requests
 import os
 from io import BytesIO
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill
+from openpyxl.styles import PatternFill, Font
 from openpyxl.utils.dataframe import dataframe_to_rows
 import random
+import json
+
+# Try to import optional dependencies
+try:
+    from email_validator import validate_email, EmailNotValidError
+    EMAIL_VALIDATOR_AVAILABLE = True
+except ImportError:
+    EMAIL_VALIDATOR_AVAILABLE = False
+
+try:
+    import phonenumbers
+    from phonenumbers import NumberParseException
+    PHONENUMBERS_AVAILABLE = True
+except ImportError:
+    PHONENUMBERS_AVAILABLE = False
 
 # --- Page Config ---
-st.set_page_config(page_title="Cleanr", layout="centered")
+st.set_page_config(page_title="Cleanr", layout="wide", page_icon="🧹")
 
 # --- Global Styles ---
 st.markdown("""
@@ -67,6 +82,12 @@ st.markdown("""
             color: #0a2342;
             margin-bottom: 0.5em;
         }
+        .metric-card {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid #112340;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -84,6 +105,143 @@ if os.path.exists(company_file):
 
 # --- Cleaning Rules ---
 COMMON_SUFFIXES = ['ltd', 'inc', 'group', 'brands', 'company', 'companies', 'incorporation', 'corporation']
+
+# Common disposable email domains
+DISPOSABLE_EMAIL_DOMAINS = {
+    '10minutemail.com', 'tempmail.com', 'guerrillamail.com', 'mailinator.com',
+    'throwaway.email', 'temp-mail.org', 'getnada.com', 'mohmal.com'
+}
+
+# Common job title abbreviations
+JOB_TITLE_ABBREVIATIONS = {
+    'ceo': 'Chief Executive Officer',
+    'cto': 'Chief Technology Officer',
+    'cfo': 'Chief Financial Officer',
+    'cmo': 'Chief Marketing Officer',
+    'coo': 'Chief Operating Officer',
+    'vp': 'Vice President',
+    'svp': 'Senior Vice President',
+    'evp': 'Executive Vice President',
+    'dir': 'Director',
+    'mgr': 'Manager',
+    'sr': 'Senior',
+    'jr': 'Junior',
+    'eng': 'Engineer',
+    'dev': 'Developer',
+    'pm': 'Product Manager',
+    'hr': 'Human Resources',
+    'pr': 'Public Relations',
+    'it': 'Information Technology'
+}
+
+
+def validate_email_format(email):
+    """Validate email format using regex and optional email-validator library."""
+    if not email or pd.isna(email):
+        return False, "Missing"
+    
+    email = str(email).strip().lower()
+    
+    # Basic regex validation
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_pattern, email):
+        return False, "Invalid Format"
+    
+    # Check for disposable emails
+    domain = email.split('@')[1] if '@' in email else ''
+    if domain in DISPOSABLE_EMAIL_DOMAINS:
+        return False, "Disposable Email"
+    
+    # Use email-validator if available for stricter validation
+    if EMAIL_VALIDATOR_AVAILABLE:
+        try:
+            validate_email(email, check_deliverability=False)
+            return True, "Valid"
+        except EmailNotValidError:
+            return False, "Invalid Format"
+    
+    return True, "Valid"
+
+
+def clean_phone_number(phone):
+    """Clean and standardize phone numbers."""
+    if pd.isna(phone) or not phone:
+        return '', False
+    
+    phone_str = str(phone).strip()
+    
+    # Remove common non-digit characters but keep + for international
+    phone_clean = re.sub(r'[^\d+]', '', phone_str)
+    
+    if not phone_clean:
+        return '', False
+    
+    # Use phonenumbers library if available
+    if PHONENUMBERS_AVAILABLE:
+        try:
+            # Try parsing as US number first
+            parsed = phonenumbers.parse(phone_clean, "US")
+            if phonenumbers.is_valid_number(parsed):
+                formatted = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+                return formatted, True
+        except NumberParseException:
+            pass
+        
+        # Try parsing as international
+        try:
+            parsed = phonenumbers.parse(phone_clean, None)
+            if phonenumbers.is_valid_number(parsed):
+                formatted = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+                return formatted, True
+        except NumberParseException:
+            pass
+    
+    # Fallback: basic cleaning
+    if len(phone_clean) >= 10:
+        # Remove leading + if no country code
+        if phone_clean.startswith('+') and len(phone_clean) <= 11:
+            phone_clean = phone_clean[1:]
+        return phone_clean, True
+    
+    return phone_clean, False
+
+
+def clean_job_title(title):
+    """Clean and standardize job titles."""
+    if pd.isna(title) or not title:
+        return ''
+    
+    title_str = str(title).strip()
+    if not title_str:
+        return ''
+    
+    # Fix encoding
+    try:
+        title_str = title_str.encode('latin1').decode('utf-8')
+    except Exception:
+        pass
+    title_str = fix_text(title_str)
+    title_str = unidecode(title_str)
+    
+    # Convert to title case
+    title_str = title_str.title()
+    
+    # Expand common abbreviations
+    words = title_str.split()
+    expanded_words = []
+    for word in words:
+        word_lower = word.lower().rstrip('.')
+        if word_lower in JOB_TITLE_ABBREVIATIONS:
+            expanded_words.append(JOB_TITLE_ABBREVIATIONS[word_lower])
+        else:
+            expanded_words.append(word)
+    
+    title_str = ' '.join(expanded_words)
+    
+    # Clean up extra spaces
+    title_str = re.sub(r'\s+', ' ', title_str).strip()
+    
+    return title_str
 
 
 def clean_company(name):
@@ -189,47 +347,170 @@ def infer_last_from_email(first_name, email):
     return ''
 
 
-def clean_data(df):
+def find_duplicates(df, email_col='Email', name_cols=['First Name', 'Last Name']):
+    """Find duplicate contacts based on email or name combination."""
+    duplicates = pd.DataFrame()
+    duplicate_indices = set()
+    
+    if email_col in df.columns:
+        # Find duplicates by email
+        email_dupes = df[df.duplicated(subset=[email_col], keep=False)]
+        if not email_dupes.empty:
+            duplicate_indices.update(email_dupes.index)
+    
+    # Find duplicates by name combination
+    available_name_cols = [col for col in name_cols if col in df.columns]
+    if len(available_name_cols) >= 2:
+        name_dupes = df[df.duplicated(subset=available_name_cols, keep=False)]
+        if not name_dupes.empty:
+            duplicate_indices.update(name_dupes.index)
+    
+    if duplicate_indices:
+        duplicates = df.loc[list(duplicate_indices)]
+    
+    return duplicates, duplicate_indices
+
+
+def calculate_data_quality_score(row, email_col='Email', phone_col='Phone', 
+                                   name_cols=['First Name', 'Last Name'], company_col='Company'):
+    """Calculate a data quality score (0-100) for a row."""
+    score = 0
+    max_score = 0
+    
+    # Email (30 points)
+    max_score += 30
+    if email_col in row.index and row[email_col]:
+        is_valid, _ = validate_email_format(row[email_col])
+        if is_valid:
+            score += 30
+    
+    # First Name (20 points)
+    max_score += 20
+    if 'First Name' in row.index and row['First Name']:
+        if len(str(row['First Name']).strip()) >= 2:
+            score += 20
+    
+    # Last Name (20 points)
+    max_score += 20
+    if 'Last Name' in row.index and row['Last Name']:
+        if len(str(row['Last Name']).strip()) >= 2:
+            score += 20
+    
+    # Company (15 points)
+    max_score += 15
+    if company_col in row.index and row[company_col]:
+        if len(str(row[company_col]).strip()) >= 2:
+            score += 15
+    
+    # Phone (15 points)
+    max_score += 15
+    if phone_col in row.index and row[phone_col]:
+        phone_clean, is_valid = clean_phone_number(row[phone_col])
+        if is_valid:
+            score += 15
+    
+    return int((score / max_score) * 100) if max_score > 0 else 0
+
+
+def clean_data(df, options):
+    """Clean data with various options."""
     cleaned_df = df.copy()
     changes = 0
     changed_mask = pd.DataFrame(False, index=df.index, columns=df.columns)
-
+    quality_scores = []
+    email_validation_results = []
+    
+    # Detect column names
+    email_col = options.get('email_col', 'Email')
+    phone_col = options.get('phone_col', 'Phone')
+    job_title_col = options.get('job_title_col', 'Job Title')
+    
     for i, row in df.iterrows():
         orig_first = str(row.get('First Name', '')).strip()
         orig_last = str(row.get('Last Name', '')).strip()
         orig_company = str(row.get('Company', '')).strip()
-        email = str(row.get('Email', '')).strip() if 'Email' in df.columns else ''
-
+        email = str(row.get(email_col, '')).strip() if email_col in df.columns else ''
+        
         # First name
-        first = clean_first_name(orig_first)
-
+        if options.get('clean_names', True):
+            first = clean_first_name(orig_first)
+        else:
+            first = orig_first
+        
         # Last name: clean if present, infer from email if missing
         if orig_last:
-            last = clean_last_name(orig_last)
+            if options.get('clean_names', True):
+                last = clean_last_name(orig_last)
+            else:
+                last = orig_last
         else:
-            inferred_last = infer_last_from_email(first, email)
-            last = clean_last_name(inferred_last) if inferred_last else ''
-
+            if options.get('infer_last_name', True):
+                inferred_last = infer_last_from_email(first, email)
+                last = clean_last_name(inferred_last) if inferred_last else ''
+            else:
+                last = ''
+        
         # Company
-        company = clean_company(orig_company)
-
+        if options.get('clean_company', True):
+            company = clean_company(orig_company)
+        else:
+            company = orig_company
+        
+        # Email validation
+        if email_col in df.columns and options.get('validate_email', True):
+            is_valid, status = validate_email_format(email)
+            email_validation_results.append({
+                'index': i,
+                'email': email,
+                'is_valid': is_valid,
+                'status': status
+            })
+        
+        # Phone cleaning
+        if phone_col in df.columns and options.get('clean_phone', True):
+            orig_phone = row.get(phone_col, '')
+            phone_clean, is_valid = clean_phone_number(orig_phone)
+            if phone_clean != str(orig_phone):
+                changed_mask.at[i, phone_col] = True
+                cleaned_df.at[i, phone_col] = phone_clean
+                changes += 1
+        
+        # Job title cleaning
+        if job_title_col in df.columns and options.get('clean_job_title', True):
+            orig_title = str(row.get(job_title_col, '')).strip()
+            title_clean = clean_job_title(orig_title)
+            if title_clean != orig_title:
+                changed_mask.at[i, job_title_col] = True
+                cleaned_df.at[i, job_title_col] = title_clean
+                changes += 1
+        
+        # Update names and company
         if first != orig_first:
             changed_mask.at[i, 'First Name'] = True
             cleaned_df.at[i, 'First Name'] = first
             changes += 1
-
+        
         if last != orig_last:
             changed_mask.at[i, 'Last Name'] = True
             cleaned_df.at[i, 'Last Name'] = last
             changes += 1
-
+        
         if company != orig_company:
             changed_mask.at[i, 'Company'] = True
             cleaned_df.at[i, 'Company'] = company
             changes += 1
-
+        
+        # Calculate quality score
+        if options.get('calculate_quality_score', True):
+            quality_score = calculate_data_quality_score(cleaned_df.loc[i], email_col, phone_col)
+            quality_scores.append(quality_score)
+    
+    # Add quality score column
+    if options.get('calculate_quality_score', True) and quality_scores:
+        cleaned_df['Quality Score'] = quality_scores
+    
     pct = (changes / len(df)) * 100 if len(df) else 0
-    return cleaned_df, pct, changed_mask
+    return cleaned_df, pct, changed_mask, email_validation_results
 
 
 def split_into_lists_by_company(df, max_lists=4):
@@ -267,6 +548,7 @@ def generate_highlighted_excel_with_splits(df, mask, split_batches=None, max_lis
     """
     wb = Workbook()
     yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+    red_fill = PatternFill(start_color="FF6B6B", end_color="FF6B6B", fill_type="solid")
 
     # ---- Sheet 1: All Contacts ----
     ws_all = wb.active
@@ -280,6 +562,10 @@ def generate_highlighted_excel_with_splits(df, mask, split_batches=None, max_lis
                 orig_idx = df.index[r_idx - 2]
                 if (col in mask.columns) and mask.at[orig_idx, col]:
                     cell.fill = yellow_fill
+                # Highlight low quality scores
+                if col == 'Quality Score' and isinstance(value, (int, float)):
+                    if value < 50:
+                        cell.fill = red_fill
 
     # ---- Additional sheets: List 1..N (only if splitting enabled) ----
     if split_batches:
@@ -296,28 +582,70 @@ def generate_highlighted_excel_with_splits(df, mask, split_batches=None, max_lis
                         orig_idx = sub_df.index[r_idx - 2]
                         if (col in sub_mask.columns) and sub_mask.at[orig_idx, col]:
                             cell.fill = yellow_fill
+                        if col == 'Quality Score' and isinstance(value, (int, float)):
+                            if value < 50:
+                                cell.fill = red_fill
 
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
 
 
+def detect_columns(df):
+    """Auto-detect column names for common variations."""
+    column_mapping = {}
+    
+    # Email detection
+    email_patterns = ['email', 'e-mail', 'mail', 'email address']
+    for col in df.columns:
+        if any(pattern in col.lower() for pattern in email_patterns):
+            column_mapping['email_col'] = col
+            break
+    
+    # Phone detection
+    phone_patterns = ['phone', 'telephone', 'tel', 'mobile', 'cell']
+    for col in df.columns:
+        if any(pattern in col.lower() for pattern in phone_patterns):
+            column_mapping['phone_col'] = col
+            break
+    
+    # Job title detection
+    title_patterns = ['title', 'job title', 'position', 'role']
+    for col in df.columns:
+        if any(pattern in col.lower() for pattern in title_patterns):
+            column_mapping['job_title_col'] = col
+            break
+    
+    return column_mapping
+
+
 # --- UI Layout ---
 st.markdown('<div class="title-text">Cleanr.</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle-text">Clean your data faster.</div>', unsafe_allow_html=True)
-st.markdown('<div class="rounded-box">Upload your Cognism CSV export and get a cleaned version ready for mail merge.</div>', unsafe_allow_html=True)
+st.markdown('<div class="rounded-box">Upload your CSV file and get a cleaned version ready for email outreach.</div>', unsafe_allow_html=True)
 
-# Toggle for list splitting
-split_enabled = st.checkbox(
-    "Split contacts from the same company into separate sending lists",
-    value=True,
-    help="When enabled, contacts from the same organisation are spread across up to four lists so you are not emailing multiple people at the same company seconds apart. This can improve deliverability and reduce the chance of your campaign hitting spam filters."
-)
-
-st.caption(
-    "Tip: Sending many emails to the same company in a short burst can look suspicious to spam filters. "
-    "Splitting contacts across several lists helps smooth out sends and protect deliverability."
-)
+# Settings sidebar
+with st.sidebar:
+    st.header("⚙️ Cleaning Options")
+    
+    clean_names = st.checkbox("Clean Names", value=True, help="Clean and standardize first and last names")
+    clean_company = st.checkbox("Clean Company Names", value=True, help="Clean and standardize company names")
+    infer_last_name = st.checkbox("Infer Last Names from Email", value=True, help="Try to infer missing last names from email addresses")
+    validate_email = st.checkbox("Validate Emails", value=True, help="Validate email format and flag invalid emails")
+    clean_phone = st.checkbox("Clean Phone Numbers", value=True, help="Clean and standardize phone numbers")
+    clean_job_title = st.checkbox("Clean Job Titles", value=True, help="Clean and standardize job titles")
+    calculate_quality_score = st.checkbox("Calculate Quality Scores", value=True, help="Add a data quality score (0-100) for each row")
+    remove_duplicates = st.checkbox("Remove Duplicates", value=False, help="Remove duplicate contacts based on email or name")
+    
+    st.divider()
+    
+    split_enabled = st.checkbox(
+        "Split by Company",
+        value=True,
+        help="Split contacts from the same company into separate sending lists"
+    )
+    
+    max_lists = st.slider("Max Lists", 1, 10, 4, help="Maximum number of lists to split contacts into")
 
 uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
 
@@ -325,38 +653,110 @@ if uploaded_file:
     df = pd.read_csv(uploaded_file, encoding='latin1')
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
     df.rename(columns={'Company Name': 'Company'}, inplace=True)
-
-    cleaned_df, percent_cleaned, changed_mask = clean_data(df)
-
+    
+    # Auto-detect columns
+    detected_cols = detect_columns(df)
+    
+    # Prepare options
+    options = {
+        'clean_names': clean_names,
+        'clean_company': clean_company,
+        'infer_last_name': infer_last_name,
+        'validate_email': validate_email,
+        'clean_phone': clean_phone,
+        'clean_job_title': clean_job_title,
+        'calculate_quality_score': calculate_quality_score,
+        'email_col': detected_cols.get('email_col', 'Email'),
+        'phone_col': detected_cols.get('phone_col', 'Phone'),
+        'job_title_col': detected_cols.get('job_title_col', 'Job Title'),
+    }
+    
+    # Clean data
+    cleaned_df, percent_cleaned, changed_mask, email_validation = clean_data(df, options)
+    
+    # Handle duplicates
+    duplicates_df = pd.DataFrame()
+    if remove_duplicates:
+        duplicates_df, duplicate_indices = find_duplicates(cleaned_df)
+        if not duplicates_df.empty:
+            cleaned_df = cleaned_df.drop(duplicates_df.index)
+            changed_mask = changed_mask.drop(duplicates_df.index)
+            st.warning(f"⚠️ Removed {len(duplicates_df)} duplicate contacts")
+    
+    # Calculate statistics
+    total_rows = len(df)
+    cleaned_rows = len(cleaned_df)
+    
+    # Email statistics
+    valid_emails = 0
+    invalid_emails = 0
+    if email_validation:
+        for result in email_validation:
+            if result['is_valid']:
+                valid_emails += 1
+            else:
+                invalid_emails += 1
+    
+    # Quality score statistics
+    avg_quality = 0
+    if 'Quality Score' in cleaned_df.columns:
+        avg_quality = cleaned_df['Quality Score'].mean()
+    
     st.success("✅ Done! Your data is cleaned and ready to download.")
-    st.info(f"📊 {percent_cleaned:.1f}% of rows were cleaned or updated.")
-
+    
+    # Display statistics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Rows", total_rows)
+    with col2:
+        st.metric("Rows Cleaned", f"{percent_cleaned:.1f}%")
+    with col3:
+        if email_validation:
+            st.metric("Valid Emails", f"{valid_emails}/{valid_emails + invalid_emails}")
+    with col4:
+        if avg_quality > 0:
+            st.metric("Avg Quality Score", f"{avg_quality:.0f}/100")
+    
+    # Email validation details
+    if email_validation and invalid_emails > 0:
+        with st.expander(f"⚠️ {invalid_emails} Invalid Emails Found"):
+            invalid_df = pd.DataFrame([
+                {'Row': result['index'] + 1, 'Email': result['email'], 'Status': result['status']}
+                for result in email_validation if not result['is_valid']
+            ])
+            st.dataframe(invalid_df, use_container_width=True)
+    
+    # Duplicates details
+    if not duplicates_df.empty and not remove_duplicates:
+        with st.expander(f"⚠️ {len(duplicates_df)} Duplicate Contacts Found"):
+            st.dataframe(duplicates_df, use_container_width=True)
+    
     split_batches = None
-
+    
     if split_enabled:
-        split_batches = split_into_lists_by_company(cleaned_df, max_lists=4)
+        split_batches = split_into_lists_by_company(cleaned_df, max_lists=max_lists)
         if len(split_batches) > 1:
             st.info(
-                "📧 Splitting is enabled. Your cleaned data has been split into "
-                f"{len(split_batches)} sending lists (maximum 4) to help protect deliverability."
+                f"📧 Splitting is enabled. Your cleaned data has been split into "
+                f"{len(split_batches)} sending lists (maximum {max_lists}) to help protect deliverability."
             )
-            for i, batch in enumerate(split_batches, start=1):
-                st.write(f"List {i}: {len(batch)} contacts")
+            cols = st.columns(len(split_batches))
+            for i, batch in enumerate(split_batches):
+                with cols[i]:
+                    st.metric(f"List {i+1}", len(batch))
         else:
-            st.write("📧 Splitting is enabled, but there are no companies with multiple contacts. All contacts are effectively in a single list.")
-    else:
-        st.info("📧 Splitting is turned off. All contacts will be kept in a single list.")
-
+            st.write("📧 Splitting is enabled, but there are no companies with multiple contacts.")
+    
     # Send Usage Log
-    cleaned_rows = int((percent_cleaned / 100) * len(df))
+    cleaned_rows_count = int((percent_cleaned / 100) * len(df))
     usage_data = {
         "type": "usage",
         "sheet": "Usage",
         "filename": uploaded_file.name,
         "rows": len(df),
-        "cleaned": cleaned_rows,
+        "cleaned": cleaned_rows_count,
         "percent_cleaned": round(percent_cleaned, 1),
-        "time_saved": round((cleaned_rows * 7.5) / 60, 1)
+        "time_saved": round((cleaned_rows_count * 7.5) / 60, 1)
     }
     try:
         requests.post(
@@ -366,30 +766,56 @@ if uploaded_file:
         )
     except Exception:
         pass
-
-    # Excel with All Contacts + optional split lists
-    excel_file = generate_highlighted_excel_with_splits(
-        cleaned_df,
-        changed_mask,
-        split_batches=split_batches if split_enabled else None,
-        max_lists=4
-    )
-
-    st.download_button(
-        label="📥 Download Cleaned File",
-        data=excel_file,
-        file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
+    
+    # Export options
+    st.markdown("<div class='section-header'>📥 Download Options</div>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Excel export
+        excel_file = generate_highlighted_excel_with_splits(
+            cleaned_df,
+            changed_mask,
+            split_batches=split_batches if split_enabled else None,
+            max_lists=max_lists
+        )
+        st.download_button(
+            label="📊 Download Excel",
+            data=excel_file,
+            file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    
+    with col2:
+        # CSV export
+        csv_file = cleaned_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📄 Download CSV",
+            data=csv_file,
+            file_name=uploaded_file.name.replace('.csv', '_cleaned.csv'),
+            mime="text/csv",
+        )
+    
+    with col3:
+        # JSON export
+        json_file = cleaned_df.to_json(orient='records', indent=2).encode('utf-8')
+        st.download_button(
+            label="📋 Download JSON",
+            data=json_file,
+            file_name=uploaded_file.name.replace('.csv', '_cleaned.json'),
+            mime="application/json",
+        )
+    
+    # Preview
     st.markdown("<div class='section-header'>Preview</div>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("<b>Before Cleaning</b>", unsafe_allow_html=True)
-        st.dataframe(df.head(10))
+        st.dataframe(df.head(10), use_container_width=True)
     with col2:
         st.markdown("<b>After Cleaning</b>", unsafe_allow_html=True)
-        st.dataframe(cleaned_df.head(10))
+        st.dataframe(cleaned_df.head(10), use_container_width=True)
 
 # --- Feedback Form ---
 st.markdown("<div class='feedback-container'>", unsafe_allow_html=True)
