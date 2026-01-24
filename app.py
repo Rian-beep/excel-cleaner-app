@@ -140,27 +140,40 @@ def validate_email_format(email):
     if not email or pd.isna(email):
         return False, "Missing"
     
-    email = str(email).strip().lower()
-    
-    # Basic regex validation
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    if not re.match(email_pattern, email):
-        return False, "Invalid Format"
-    
-    # Check for disposable emails
-    domain = email.split('@')[1] if '@' in email else ''
-    if domain in DISPOSABLE_EMAIL_DOMAINS:
-        return False, "Disposable Email"
-    
-    # Use email-validator if available for stricter validation
-    if EMAIL_VALIDATOR_AVAILABLE:
-        try:
-            validate_email(email, check_deliverability=False)
-            return True, "Valid"
-        except EmailNotValidError:
+    try:
+        email_str = str(email).strip()
+        if not email_str:
+            return False, "Missing"
+        
+        email_lower = email_str.lower()
+        
+        # Basic regex validation
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email_lower):
             return False, "Invalid Format"
-    
-    return True, "Valid"
+        
+        # Check for disposable emails
+        if '@' in email_lower:
+            domain = email_lower.split('@')[1]
+            if domain in DISPOSABLE_EMAIL_DOMAINS:
+                return False, "Disposable Email"
+        
+        # Use email-validator if available for stricter validation
+        if EMAIL_VALIDATOR_AVAILABLE:
+            try:
+                # email-validator expects the email as a string, and returns a normalized version
+                result = validate_email(email_str, check_deliverability=False)
+                return True, "Valid"
+            except EmailNotValidError as e:
+                return False, "Invalid Format"
+            except Exception as e:
+                # If email-validator fails for any other reason, fall back to regex validation
+                return True, "Valid"
+        
+        return True, "Valid"
+    except Exception as e:
+        # If anything goes wrong, return invalid
+        return False, "Invalid Format"
 
 
 def clean_phone_number(phone):
@@ -506,18 +519,31 @@ def clean_data(df, options):
             company = orig_company
         
         # Email validation
-        if email_col in df.columns and options.get('validate_email', True):
-            is_valid, status = validate_email_format(email)
-            email_validation_results.append({
-                'index': i,
-                'email': email,
-                'is_valid': is_valid,
-                'status': status
-            })
+        if email_col in df.columns and options.get('validate_email', True) and email:
+            try:
+                is_valid, status = validate_email_format(email)
+                email_validation_results.append({
+                    'index': i,
+                    'email': email,
+                    'is_valid': is_valid,
+                    'status': status
+                })
+            except Exception as e:
+                # If validation fails, mark as invalid
+                email_validation_results.append({
+                    'index': i,
+                    'email': email,
+                    'is_valid': False,
+                    'status': 'Validation Error'
+                })
         
         # Phone cleaning
         if phone_col in df.columns and options.get('clean_phone', True):
-            orig_phone = row.get(phone_col, '')
+            try:
+                phone_val = row[phone_col] if phone_col in df.columns else ''
+                orig_phone = '' if pd.isna(phone_val) else str(phone_val).strip()
+            except (KeyError, IndexError):
+                orig_phone = ''
             phone_clean, is_valid = clean_phone_number(orig_phone)
             if phone_clean != str(orig_phone):
                 changed_mask.at[i, phone_col] = True
@@ -526,7 +552,11 @@ def clean_data(df, options):
         
         # Job title cleaning
         if job_title_col in df.columns and options.get('clean_job_title', True):
-            orig_title = str(row.get(job_title_col, '')).strip()
+            try:
+                title_val = row[job_title_col] if job_title_col in df.columns else ''
+                orig_title = '' if pd.isna(title_val) else str(title_val).strip()
+            except (KeyError, IndexError):
+                orig_title = ''
             title_clean = clean_job_title(orig_title)
             if title_clean != orig_title:
                 changed_mask.at[i, job_title_col] = True
