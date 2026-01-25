@@ -612,9 +612,7 @@ def clean_data(df, options):
     job_title_col = options.get('job_title_col', 'Job Title')
     company_col = 'Company'
     
-    # First pass: clean all data
-    for i, row in df.iterrows():
-    
+    # First pass: clean all data 
     for i, row in df.iterrows():
         # Handle NaN values properly - use safe column access
         try:
