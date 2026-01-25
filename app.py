@@ -887,8 +887,6 @@ def detect_columns(df):
 
 # --- UI Layout ---
 st.markdown('<div class="title-text">Cleanr.</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle-text">Clean your data faster.</div>', unsafe_allow_html=True)
-st.markdown('<div class="rounded-box">Upload your CSV file and get a cleaned version ready for email outreach.</div>', unsafe_allow_html=True)
 
 # Settings sidebar
 with st.sidebar:
@@ -898,10 +896,10 @@ with st.sidebar:
     clean_company = st.checkbox("Clean Company Names", value=True, help="Clean and standardize company names")
     infer_last_name = st.checkbox("Infer Last Names from Email", value=True, help="Try to infer missing last names from email addresses")
     validate_email = st.checkbox("Validate Emails", value=True, help="Validate email format and flag invalid emails")
-    check_company_email_pattern = st.checkbox("Check Company Email Patterns", value=False, 
+    check_company_email_pattern = st.checkbox("Check Company Email Patterns", value=True, 
                                                help="For companies with 2+ contacts, emails matching the company's dominant pattern get higher scores")
-    clean_phone = st.checkbox("Clean Phone Numbers", value=True, help="Clean and standardize phone numbers")
-    clean_job_title = st.checkbox("Clean Job Titles", value=True, help="Clean and standardize job titles")
+    clean_phone = st.checkbox("Clean Phone Numbers", value=False, help="Clean and standardize phone numbers")
+    clean_job_title = st.checkbox("Clean Job Titles", value=False, help="Clean and standardize job titles")
     calculate_quality_score = st.checkbox("Calculate Quality Scores", value=True, help="Add a data quality score (0-100) for each row")
     remove_duplicates = st.checkbox("Remove Duplicates", value=False, help="Remove duplicate contacts based on email or name")
     
@@ -909,7 +907,7 @@ with st.sidebar:
     
     split_enabled = st.checkbox(
         "Split by Company",
-        value=True,
+        value=False,
         help="Split contacts from the same company into separate sending lists"
     )
     
