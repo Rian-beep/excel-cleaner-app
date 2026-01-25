@@ -613,7 +613,7 @@ def clean_data(df, options):
     company_col = 'Company'
     
     # First pass: clean all data
-     for i, row in df.iterrows():
+    for i, row in df.iterrows():
         # Handle NaN values properly - use safe column access
         try:
             first_val = row['First Name'] if 'First Name' in df.columns else ''
