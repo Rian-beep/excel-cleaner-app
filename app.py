@@ -29,66 +29,67 @@ except ImportError:
 # --- Page Config ---
 st.set_page_config(page_title="Cleanr", layout="wide", page_icon="🧹")
 
-# --- Custom UI Styling (Canva Re-creation) ---
+# --- Global Styles ---
 st.markdown("""
     <style>
-        /* Import Montserrat */
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap');
 
-        /* Main Grid Background - EXACTLY AS REQUESTED */
-        .stApp {
-            background-color: #ffffff;
-            background-image: 
-                linear-gradient(#f0f0f0 1px, transparent 1px),
-                linear-gradient(90deg, #f0f0f0 1px, transparent 1px);
-            background-size: 30px 30px;
+        html, body, [class*="css"] {
             font-family: 'Montserrat', sans-serif;
-        }
-
-        /* Sidebar Styling */
-        section[data-testid="stSidebar"] {
-            background-color: #f8f9fa !important;
-            border-right: 1px solid #e0e0e0;
-        }
-
-        /* Red Accents for Checkboxes and Slider */
-        input[type="checkbox"]:checked {
-            background-color: #e63946 !important;
-        }
-        
-        .stSlider [data-baseweb="slider"] [role="slider"] {
-            background-color: #e63946;
-        }
-        
-        /* Cleanr Logo Style - Centered and Clean */
-        .logo-text {
-            font-size: 80px;
-            font-weight: 700;
-            color: #112340;
-            text-align: center;
-            margin-top: -50px;
-            margin-bottom: 20px;
-        }
-
-        /* Feedback Box */
-        .feedback-box {
             background-color: #ffffff;
-            padding: 20px;
-            border-radius: 12px;
-            border: 1px solid #e0e0e0;
-            margin-top: 20px;
+            color: #0a2342;
         }
-
-        /* Headers */
-        h1, h2, h3 {
-            color: #112340;
+        .title-text {
+            text-align: center;
+            font-size: 3em;
             font-weight: 700;
+            margin-bottom: 0.1em;
+            color: #0a2342;
+        }
+        .subtitle-text {
+            text-align: center;
+            font-size: 1.2em;
+            margin-bottom: 2em;
+            color: #0a2342;
+        }
+        .rounded-box {
+            background-color: #F0F0F0;
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: #0a2342;
+        }
+        .feedback-container {
+            background-color: #F0F0F0;
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-top: 2rem;
+            color: #0a2342;
+        }
+        .feedback-box textarea {
+            background-color: #112340;
+            color: #ffffff;
+            border-radius: 12px;
+        }
+        .download-button button, .stButton>button, .stDownloadButton>button {
+            background-color: #112340 !important;
+            color: #ffffff !important;
+            border-radius: 12px;
+        }
+        .section-header {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #0a2342;
+            margin-bottom: 0.5em;
+        }
+        .metric-card {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid #112340;
         }
     </style>
 """, unsafe_allow_html=True)
-
-# Logo Display (No subtext as requested)
-st.markdown('<div class="logo-text">Cleanr.</div>', unsafe_allow_html=True)
 
 # --- Load Known Company Names ---
 company_dict = {}
@@ -446,14 +447,7 @@ def clean_first_name(name):
     if not name:
         return ''
     parts = name.split()
-    # Dr. Rian Fix (Checking for common titles)
-    TITLES = {'dr', 'dr.', 'prof', 'prof.', 'sir', 'mr', 'mrs', 'ms', 'mx', 'hon'}
-    if parts and parts[0].lower() in TITLES and len(parts) > 1:
-        first = parts[1]
-    elif parts:
-        first = parts[0]
-    else:
-        return ''
+    first = parts[0]
     return first.title()
 
 
@@ -618,7 +612,9 @@ def clean_data(df, options):
     job_title_col = options.get('job_title_col', 'Job Title')
     company_col = 'Company'
     
-    # First pass: clean all data 
+    # First pass: clean all data
+    for i, row in df.iterrows():
+    
     for i, row in df.iterrows():
         # Handle NaN values properly - use safe column access
         try:
@@ -798,71 +794,358 @@ def split_into_lists_by_company(df, max_lists=4):
     for idx, company in df['Company'].items():
         company_groups.setdefault(company, []).append(idx)
 
-    # Simplified list splitting for brevity in UI integration
-    lists = [[] for _ in range(max_lists)]
-    for i, (company, indices) in enumerate(company_groups.items()):
-        for j, idx in enumerate(indices):
-            lists[(i + j) % max_lists].append(idx)
-    return lists
+    max_count = max(len(indices) for indices in company_groups.values())
+    num_lists = min(max_lists, max_count if max_count > 0 else 1)
 
-# --- Sidebar & UI Implementation ---
+    batches = [[] for _ in range(num_lists)]
+
+    for company, indices in company_groups.items():
+        random.shuffle(indices)  # randomise order within company
+        for i, idx in enumerate(indices):
+            batches[i % num_lists].append(idx)
+
+    return [batch for batch in batches if batch]
+
+
+def generate_highlighted_excel_with_splits(df, mask, split_batches=None, max_lists=4):
+    """
+    Create an Excel file with:
+      - Sheet "All Contacts": full cleaned data with highlights.
+      - If split_batches is provided and not empty:
+          up to max_lists sheets "List 1" ... "List N": split by company.
+    """
+    wb = Workbook()
+    yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+    red_fill = PatternFill(start_color="FF6B6B", end_color="FF6B6B", fill_type="solid")
+
+    # ---- Sheet 1: All Contacts ----
+    ws_all = wb.active
+    ws_all.title = "All Contacts"
+
+    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), 1):
+        for c_idx, value in enumerate(row, 1):
+            cell = ws_all.cell(row=r_idx, column=c_idx, value=value)
+            if r_idx > 1:
+                col = df.columns[c_idx - 1]
+                orig_idx = df.index[r_idx - 2]
+                if (col in mask.columns) and mask.at[orig_idx, col]:
+                    cell.fill = yellow_fill
+                # Highlight low quality scores
+                if col == 'Quality Score' and isinstance(value, (int, float)):
+                    if value < 50:
+                        cell.fill = red_fill
+
+    # ---- Additional sheets: List 1..N (only if splitting enabled) ----
+    if split_batches:
+        for list_num, indices in enumerate(split_batches[:max_lists], start=1):
+            ws = wb.create_sheet(title=f"List {list_num}")
+            sub_df = df.loc[indices]
+            sub_mask = mask.loc[indices]
+
+            for r_idx, row in enumerate(dataframe_to_rows(sub_df, index=False, header=True), 1):
+                for c_idx, value in enumerate(row, 1):
+                    cell = ws.cell(row=r_idx, column=c_idx, value=value)
+                    if r_idx > 1:
+                        col = sub_df.columns[c_idx - 1]
+                        orig_idx = sub_df.index[r_idx - 2]
+                        if (col in sub_mask.columns) and sub_mask.at[orig_idx, col]:
+                            cell.fill = yellow_fill
+                        if col == 'Quality Score' and isinstance(value, (int, float)):
+                            if value < 50:
+                                cell.fill = red_fill
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def detect_columns(df):
+    """Auto-detect column names for common variations."""
+    column_mapping = {}
+    
+    # Email detection
+    email_patterns = ['email', 'e-mail', 'mail', 'email address']
+    for col in df.columns:
+        if any(pattern in col.lower() for pattern in email_patterns):
+            column_mapping['email_col'] = col
+            break
+    
+    # Phone detection
+    phone_patterns = ['phone', 'telephone', 'tel', 'mobile', 'cell']
+    for col in df.columns:
+        if any(pattern in col.lower() for pattern in phone_patterns):
+            column_mapping['phone_col'] = col
+            break
+    
+    # Job title detection
+    title_patterns = ['title', 'job title', 'position', 'role']
+    for col in df.columns:
+        if any(pattern in col.lower() for pattern in title_patterns):
+            column_mapping['job_title_col'] = col
+            break
+    
+    return column_mapping
+
+
+# --- UI Layout ---
+st.markdown('<div class="title-text">Cleanr.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle-text">Clean your data faster.</div>', unsafe_allow_html=True)
+st.markdown('<div class="rounded-box">Upload your CSV file and get a cleaned version ready for email outreach.</div>', unsafe_allow_html=True)
+
+# Settings sidebar
 with st.sidebar:
     st.header("⚙️ Cleaning Options")
-    # Using defaults: Email Patterns ON, others OFF
-    opt_names = st.checkbox("Clean Names", value=True)
-    opt_company = st.checkbox("Clean Company Names", value=True)
-    opt_infer = st.checkbox("Infer Last Names from Email", value=True)
-    opt_patterns = st.checkbox("Check Company Email Patterns", value=True)
-    opt_phone = st.checkbox("Clean Mobile Numbers", value=False)
-    opt_titles = st.checkbox("Clean Job Titles", value=False)
-    opt_split = st.checkbox("Split by Company", value=False)
     
-    if opt_split:
-        max_lists = st.slider("Max Lists", 1, 10, 4)
+    clean_names = st.checkbox("Clean Names", value=True, help="Clean and standardize first and last names")
+    clean_company = st.checkbox("Clean Company Names", value=True, help="Clean and standardize company names")
+    infer_last_name = st.checkbox("Infer Last Names from Email", value=True, help="Try to infer missing last names from email addresses")
+    validate_email = st.checkbox("Validate Emails", value=True, help="Validate email format and flag invalid emails")
+    check_company_email_pattern = st.checkbox("Check Company Email Patterns", value=False, 
+                                               help="For companies with 2+ contacts, emails matching the company's dominant pattern get higher scores")
+    clean_phone = st.checkbox("Clean Phone Numbers", value=True, help="Clean and standardize phone numbers")
+    clean_job_title = st.checkbox("Clean Job Titles", value=True, help="Clean and standardize job titles")
+    calculate_quality_score = st.checkbox("Calculate Quality Scores", value=True, help="Add a data quality score (0-100) for each row")
+    remove_duplicates = st.checkbox("Remove Duplicates", value=False, help="Remove duplicate contacts based on email or name")
     
     st.divider()
-    uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
+    
+    split_enabled = st.checkbox(
+        "Split by Company",
+        value=True,
+        help="Split contacts from the same company into separate sending lists"
+    )
+    
+    max_lists = st.slider("Max Lists", 1, 10, 4, help="Maximum number of lists to split contacts into")
+
+uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file, encoding='latin1')
-    # Basic column mapping
     df.columns = [col.strip().title().replace('_', ' ') for col in df.columns]
-    if 'Company Name' in df.columns and 'Company' not in df.columns:
-        df.rename(columns={'Company Name': 'Company'}, inplace=True)
+    df.rename(columns={'Company Name': 'Company'}, inplace=True)
     
-    # Run the big clean function with the Sidebar options
-    opts = {
-        'clean_names': opt_names,
-        'clean_company': opt_company,
-        'infer_last_name': opt_infer,
-        'check_company_email_pattern': opt_patterns,
-        'clean_phone': opt_phone,
-        'clean_job_title': opt_titles
+    # Auto-detect columns
+    detected_cols = detect_columns(df)
+    
+    # Prepare options
+    options = {
+        'clean_names': clean_names,
+        'clean_company': clean_company,
+        'infer_last_name': infer_last_name,
+        'validate_email': validate_email,
+        'check_company_email_pattern': check_company_email_pattern,
+        'clean_phone': clean_phone,
+        'clean_job_title': clean_job_title,
+        'calculate_quality_score': calculate_quality_score,
+        'email_col': detected_cols.get('email_col', 'Email'),
+        'phone_col': detected_cols.get('phone_col', 'Phone'),
+        'job_title_col': detected_cols.get('job_title_col', 'Job Title'),
     }
     
-    with st.spinner('Cleaning your data...'):
-        cleaned_df, pct, mask, ev_res, pm_info, patterns = clean_data(df, opts)
+    # Clean data
+    cleaned_df, percent_cleaned, changed_mask, email_validation, pattern_match_info, company_patterns = clean_data(df, options)
+    
+    # Handle duplicates
+    duplicates_df = pd.DataFrame()
+    if remove_duplicates:
+        duplicates_df, duplicate_indices = find_duplicates(cleaned_df)
+        if not duplicates_df.empty:
+            cleaned_df = cleaned_df.drop(duplicates_df.index)
+            changed_mask = changed_mask.drop(duplicates_df.index)
+            st.warning(f"⚠️ Removed {len(duplicates_df)} duplicate contacts")
+    
+    # Calculate statistics
+    total_rows = len(df)
+    cleaned_rows = len(cleaned_df)
+    
+    # Email statistics
+    valid_emails = 0
+    invalid_emails = 0
+    if email_validation:
+        for result in email_validation:
+            if result['is_valid']:
+                valid_emails += 1
+            else:
+                invalid_emails += 1
+    
+    # Quality score statistics
+    avg_quality = 0
+    if 'Quality Score' in cleaned_df.columns:
+        avg_quality = cleaned_df['Quality Score'].mean()
+    
+    st.success("✅ Done! Your data is cleaned and ready to download.")
+    
+    # Display statistics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Rows", total_rows)
+    with col2:
+        st.metric("Rows Cleaned", f"{percent_cleaned:.1f}%")
+    with col3:
+        if email_validation:
+            st.metric("Valid Emails", f"{valid_emails}/{valid_emails + invalid_emails}")
+    with col4:
+        if avg_quality > 0:
+            st.metric("Avg Quality Score", f"{avg_quality:.0f}/100")
+    
+    # Email validation details
+    if email_validation and invalid_emails > 0:
+        with st.expander(f"⚠️ {invalid_emails} Invalid Emails Found"):
+            invalid_df = pd.DataFrame([
+                {'Row': result['index'] + 1, 'Email': result['email'], 'Status': result['status']}
+                for result in email_validation if not result['is_valid']
+            ])
+            st.dataframe(invalid_df, use_container_width=True)
+    
+    # Duplicates details
+    if not duplicates_df.empty and not remove_duplicates:
+        with st.expander(f"⚠️ {len(duplicates_df)} Duplicate Contacts Found"):
+            st.dataframe(duplicates_df, use_container_width=True)
+    
+    # Company email pattern analysis
+    if check_company_email_pattern and company_patterns:
+        matching_count = sum(1 for p in pattern_match_info if p['matches_pattern'])
+        non_matching_count = sum(1 for p in pattern_match_info if not p['matches_pattern'])
         
-    st.success(f"Cleaned! {pct:.1f}% of cells were updated.")
+        if pattern_match_info:
+            with st.expander(f"📊 Company Email Pattern Analysis ({len(company_patterns)} companies analyzed)"):
+                st.info(f"✅ {matching_count} emails match their company's pattern | ⚠️ {non_matching_count} emails don't match")
+                
+                # Show companies with patterns
+                st.markdown("**Companies with detected email patterns:**")
+                pattern_summary = []
+                for company, info in company_patterns.items():
+                    pattern_summary.append({
+                        'Company': company,
+                        'Pattern': info['pattern'],
+                        'Matching Emails': f"{info['count']}/{info['total']}",
+                        'Percentage': f"{info['percentage']:.1f}%"
+                    })
+                st.dataframe(pd.DataFrame(pattern_summary), use_container_width=True)
+                
+                # Show non-matching emails
+                if non_matching_count > 0:
+                    st.markdown("**⚠️ Emails that don't match their company's pattern:**")
+                    non_matching_df = pd.DataFrame([
+                        {
+                            'Row': p['index'] + 1,
+                            'Company': p['company'],
+                            'Email': p['email'],
+                            'Detected Pattern': p['detected_pattern'],
+                            'Expected Pattern': p['expected_pattern']
+                        }
+                        for p in pattern_match_info if not p['matches_pattern']
+                    ])
+                    st.dataframe(non_matching_df, use_container_width=True)
     
-    # Download Button
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        cleaned_df.to_excel(writer, index=False, sheet_name='Cleaned')
+    split_batches = None
     
-    st.download_button(
-        label="📥 Download Cleaned Excel",
-        data=output.getvalue(),
-        file_name="cleaned_leads.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    if split_enabled:
+        split_batches = split_into_lists_by_company(cleaned_df, max_lists=max_lists)
+        if len(split_batches) > 1:
+            st.info(
+                f"📧 Splitting is enabled. Your cleaned data has been split into "
+                f"{len(split_batches)} sending lists (maximum {max_lists}) to help protect deliverability."
+            )
+            cols = st.columns(len(split_batches))
+            for i, batch in enumerate(split_batches):
+                with cols[i]:
+                    st.metric(f"List {i+1}", len(batch))
+        else:
+            st.write("📧 Splitting is enabled, but there are no companies with multiple contacts.")
     
-    st.dataframe(cleaned_df.head(50))
+    # Send Usage Log
+    cleaned_rows_count = int((percent_cleaned / 100) * len(df))
+    usage_data = {
+        "type": "usage",
+        "sheet": "Usage",
+        "filename": uploaded_file.name,
+        "rows": len(df),
+        "cleaned": cleaned_rows_count,
+        "percent_cleaned": round(percent_cleaned, 1),
+        "time_saved": round((cleaned_rows_count * 7.5) / 60, 1)
+    }
+    try:
+        requests.post(
+            "https://script.google.com/macros/s/AKfycbxM7dmZfMIuWcNWiyxAh8nwX69rvuRaioJ6EH_k7Vx9DRu6DdYdMIO3ZbsZmH--Q5q1/exec",
+            json=usage_data,
+            timeout=2
+        )
+    except Exception:
+        pass
+    
+    # Export options
+    st.markdown("<div class='section-header'>📥 Download Options</div>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Excel export
+        excel_file = generate_highlighted_excel_with_splits(
+            cleaned_df,
+            changed_mask,
+            split_batches=split_batches if split_enabled else None,
+            max_lists=max_lists
+        )
+        st.download_button(
+            label="📊 Download Excel",
+            data=excel_file,
+            file_name=uploaded_file.name.replace('.csv', '_cleaned.xlsx'),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    
+    with col2:
+        # CSV export
+        csv_file = cleaned_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📄 Download CSV",
+            data=csv_file,
+            file_name=uploaded_file.name.replace('.csv', '_cleaned.csv'),
+            mime="text/csv",
+        )
+    
+    with col3:
+        # JSON export
+        json_file = cleaned_df.to_json(orient='records', indent=2).encode('utf-8')
+        st.download_button(
+            label="📋 Download JSON",
+            data=json_file,
+            file_name=uploaded_file.name.replace('.csv', '_cleaned.json'),
+            mime="application/json",
+        )
+    
+    # Preview
+    st.markdown("<div class='section-header'>Preview</div>", unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("<b>Before Cleaning</b>", unsafe_allow_html=True)
+        st.dataframe(df.head(10), use_container_width=True)
+    with col2:
+        st.markdown("<b>After Cleaning</b>", unsafe_allow_html=True)
+        st.dataframe(cleaned_df.head(10), use_container_width=True)
 
-# Feedback Section
-st.markdown('<div class="feedback-box">', unsafe_allow_html=True)
-st.markdown("### 💬 Leave Feedback")
-feedback_text = st.text_area("Have any suggestions or feature ideas?", placeholder="Enter your feedback here...")
-if st.button("Submit Feedback"):
-    st.toast("Feedback received! Thanks for helping improve Cleanr.")
-st.markdown('</div>', unsafe_allow_html=True)
+# --- Feedback Form ---
+st.markdown("<div class='feedback-container'>", unsafe_allow_html=True)
+st.markdown("<h4>💬 Leave Feedback</h4>", unsafe_allow_html=True)
+with st.form(key="feedback_form"):
+    feedback = st.text_area("Have any suggestions, bugs, or feature ideas?", height=120, key="feedback_box")
+    submitted = st.form_submit_button("Submit")
+    if submitted:
+        if feedback.strip():
+            try:
+                requests.post(
+                    "https://script.google.com/macros/s/AKfycbxM7dmZfMIuWcNWiyxAh8nwX69rvuRaioJ6EH_k7Vx9DRu6DdYdMIO3ZbsZmH--Q5q1/exec",
+                    json={
+                        "type": "feedback",
+                        "sheet": "Feedback",
+                        "timestamp": str(pd.Timestamp.now()),
+                        "message": feedback.strip()
+                    },
+                    timeout=2
+                )
+                st.success("✅ Thanks! Your feedback was submitted.")
+            except Exception as e:
+                st.error(f"❌ Failed to submit feedback: {e}")
+        else:
+            st.warning("✏️ Please write something before submitting.")
+st.markdown("</div>", unsafe_allow_html=True)
