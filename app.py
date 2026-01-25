@@ -29,68 +29,63 @@ except ImportError:
 # --- Page Config ---
 st.set_page_config(page_title="Cleanr", layout="wide", page_icon="🧹")
 
-# --- Global Styles ---
+# --- Custom UI Styling (Canva Re-creation) ---
 st.markdown("""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap');
+        /* Import Montserrat */
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
 
-        html, body, [class*="css"] {
-            font-family: 'Montserrat', sans-serif;
+        /* Main Grid Background */
+        .stApp {
             background-color: #ffffff;
-            color: #0a2342;
+            background-image: 
+                linear-gradient(#f0f0f0 1px, transparent 1px),
+                linear-gradient(90deg, #f0f0f0 1px, transparent 1px);
+            background-size: 30px 30px;
+            font-family: 'Montserrat', sans-serif;
         }
-        .title-text {
-            text-align: center;
-            font-size: 3em;
+
+        /* Sidebar Styling */
+        section[data-testid="stSidebar"] {
+            background-color: #f8f9fa !important;
+            border-right: 1px solid #e0e0e0;
+        }
+
+        /* Red Accents for Checkboxes and Slider */
+        input[type="checkbox"]:checked {
+            background-color: #e63946 !important;
+        }
+        
+        .stSlider [data-baseweb="slider"] [role="slider"] {
+            background-color: #e63946;
+        }
+        
+        /* Cleanr Logo Style */
+        .logo-text {
+            font-size: 80px;
             font-weight: 700;
-            margin-bottom: 0.1em;
-            color: #0a2342;
-        }
-        .subtitle-text {
+            color: #112340;
             text-align: center;
-            font-size: 1.2em;
-            margin-bottom: 2em;
-            color: #0a2342;
+            margin-top: -50px;
+            margin-bottom: 20px;
         }
-        .rounded-box {
-            background-color: #F0F0F0;
-            border-radius: 16px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            color: #0a2342;
-        }
-        .feedback-container {
-            background-color: #F0F0F0;
-            border-radius: 16px;
-            padding: 1.5rem;
-            margin-top: 2rem;
-            color: #0a2342;
-        }
-        .feedback-box textarea {
-            background-color: #112340;
-            color: #ffffff;
+
+        /* Feedback Box */
+        .feedback-box {
+            background-color: #ffffff;
+            padding: 20px;
             border-radius: 12px;
+            border: 1px solid #e0e0e0;
+            margin-top: 20px;
         }
-        .download-button button, .stButton>button, .stDownloadButton>button {
-            background-color: #112340 !important;
-            color: #ffffff !important;
-            border-radius: 12px;
-        }
-        .section-header {
-            font-size: 1.3em;
-            font-weight: 600;
-            color: #0a2342;
-            margin-bottom: 0.5em;
-        }
-        .metric-card {
-            background-color: #f8f9fa;
-            padding: 1rem;
-            border-radius: 8px;
-            border-left: 4px solid #112340;
+
+        /* Headers */
+        h1, h2, h3 {
+            color: #112340;
+            font-weight: 700;
         }
     </style>
 """, unsafe_allow_html=True)
-
 # --- Load Known Company Names ---
 company_dict = {}
 company_file = "company_directory.csv"
