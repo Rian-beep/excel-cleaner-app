@@ -34,6 +34,16 @@ st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap');
 
+        /* Main Grid Background */
+        .stApp {
+            background-color: #ffffff;
+            background-image: 
+                linear-gradient(#f0f0f0 1px, transparent 1px),
+                linear-gradient(90deg, #f0f0f0 1px, transparent 1px);
+            background-size: 30px 30px;
+            font-family: 'Montserrat', sans-serif;
+        }
+
         html, body, [class*="css"] {
             font-family: 'Montserrat', sans-serif;
             background-color: #ffffff;
