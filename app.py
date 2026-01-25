@@ -135,6 +135,130 @@ JOB_TITLE_ABBREVIATIONS = {
 }
 
 
+def detect_email_pattern(email, first_name='', last_name=''):
+    """
+    Detect the pattern type of an email address.
+    Returns a pattern identifier string.
+    """
+    if not email or '@' not in email:
+        return 'unknown'
+    
+    email_lower = str(email).lower().strip()
+    local_part = email_lower.split('@')[0]
+    
+    first_lower = str(first_name).lower().strip() if first_name else ''
+    last_lower = str(last_name).lower().strip() if last_name else ''
+    
+    # Pattern: firstname.lastname
+    if first_lower and last_lower:
+        if f"{first_lower}.{last_lower}" == local_part:
+            return 'firstname.lastname'
+        if f"{first_lower}_{last_lower}" == local_part:
+            return 'firstname_lastname'
+        if f"{first_lower}-{last_lower}" == local_part:
+            return 'firstname-lastname'
+        if f"{first_lower}{last_lower}" == local_part:
+            return 'firstnamelastname'
+        # Pattern: firstinitial.lastname (e.g., j.smith)
+        if len(first_lower) > 0 and f"{first_lower[0]}.{last_lower}" == local_part:
+            return 'firstinitial.lastname'
+        if f"{first_lower[0]}{last_lower}" == local_part:
+            return 'firstinitiallastname'
+        # Pattern: lastname.firstname
+        if f"{last_lower}.{first_lower}" == local_part:
+            return 'lastname.firstname'
+        if f"{last_lower}_{first_lower}" == local_part:
+            return 'lastname_firstname'
+    
+    # Pattern: just firstname or just lastname
+    if first_lower and local_part == first_lower:
+        return 'firstname'
+    if last_lower and local_part == last_lower:
+        return 'lastname'
+    
+    # Pattern: numbers or other characters (less common)
+    if re.search(r'\d', local_part):
+        return 'with_numbers'
+    
+    return 'other'
+
+
+def analyze_company_email_patterns(df, email_col='Email', company_col='Company', 
+                                     first_name_col='First Name', last_name_col='Last Name'):
+    """
+    Analyze email patterns for each company and return the dominant pattern.
+    Only analyzes companies with 2+ contacts.
+    Returns a dict: {company_name: dominant_pattern}
+    """
+    company_patterns = {}
+    
+    if company_col not in df.columns or email_col not in df.columns:
+        return company_patterns
+    
+    # Group by company
+    for company, group in df.groupby(company_col):
+        # Only analyze if company has 2+ contacts
+        if len(group) < 2:
+            continue
+        
+        # Skip if company name is empty/NaN
+        if pd.isna(company) or str(company).strip() == '':
+            continue
+        
+        pattern_counts = {}
+        valid_emails = 0
+        
+        for idx, row in group.iterrows():
+            email = row.get(email_col, '')
+            first_name = row.get(first_name_col, '')
+            last_name = row.get(last_name_col, '')
+            
+            if pd.isna(email) or str(email).strip() == '':
+                continue
+            
+            # Check if email is valid first
+            is_valid, _ = validate_email_format(email)
+            if not is_valid:
+                continue
+            
+            valid_emails += 1
+            pattern = detect_email_pattern(email, first_name, last_name)
+            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+        
+        # Only set pattern if we have at least 2 valid emails
+        if valid_emails >= 2:
+            # Find the most common pattern
+            if pattern_counts:
+                dominant_pattern = max(pattern_counts, key=pattern_counts.get)
+                # Only use if it represents at least 50% of emails
+                if pattern_counts[dominant_pattern] / valid_emails >= 0.5:
+                    company_patterns[company] = {
+                        'pattern': dominant_pattern,
+                        'count': pattern_counts[dominant_pattern],
+                        'total': valid_emails,
+                        'percentage': (pattern_counts[dominant_pattern] / valid_emails) * 100
+                    }
+    
+    return company_patterns
+
+
+def check_email_pattern_match(email, first_name, last_name, company, company_patterns):
+    """
+    Check if an email matches the dominant pattern for its company.
+    Returns (matches_pattern, pattern_type, company_pattern)
+    """
+    if not company or company not in company_patterns:
+        return None, None, None
+    
+    company_info = company_patterns[company]
+    expected_pattern = company_info['pattern']
+    
+    detected_pattern = detect_email_pattern(email, first_name, last_name)
+    
+    matches = (detected_pattern == expected_pattern)
+    return matches, detected_pattern, expected_pattern
+
+
 def validate_email_format(email):
     """Validate email format using regex and optional email-validator library."""
     if not email or pd.isna(email):
@@ -409,17 +533,34 @@ def find_duplicates(df, email_col='Email', name_cols=['First Name', 'Last Name']
 
 
 def calculate_data_quality_score(row, email_col='Email', phone_col='Phone', 
-                                   name_cols=['First Name', 'Last Name'], company_col='Company'):
+                                   name_cols=['First Name', 'Last Name'], company_col='Company',
+                                   company_patterns=None, check_pattern_match=False):
     """Calculate a data quality score (0-100) for a row."""
     score = 0
     max_score = 0
     
-    # Email (30 points)
+    # Email (30 points base, +10 bonus for pattern match, -10 penalty for mismatch)
     max_score += 30
+    email_bonus = 0
     if email_col in row.index and row[email_col]:
         is_valid, _ = validate_email_format(row[email_col])
         if is_valid:
             score += 30
+            
+            # Pattern matching bonus/penalty (only if enabled and company has pattern)
+            if check_pattern_match and company_patterns:
+                company = row.get(company_col, '')
+                first_name = row.get('First Name', '')
+                last_name = row.get('Last Name', '')
+                
+                if company and company in company_patterns:
+                    matches, detected, expected = check_email_pattern_match(
+                        row[email_col], first_name, last_name, company, company_patterns
+                    )
+                    if matches:
+                        email_bonus = 10  # Bonus for matching pattern
+                    elif expected:
+                        email_bonus = -10  # Penalty for not matching company pattern
     
     # First Name (20 points)
     max_score += 20
@@ -446,7 +587,14 @@ def calculate_data_quality_score(row, email_col='Email', phone_col='Phone',
         if is_valid:
             score += 15
     
-    return int((score / max_score) * 100) if max_score > 0 else 0
+    # Apply email pattern bonus/penalty (can go above 100 or below 0)
+    final_score = score + email_bonus
+    
+    # Normalize to 0-100 range
+    normalized_score = int((final_score / max_score) * 100) if max_score > 0 else 0
+    normalized_score = max(0, min(100, normalized_score))  # Clamp between 0 and 100
+    
+    return normalized_score
 
 
 def clean_data(df, options):
@@ -456,11 +604,16 @@ def clean_data(df, options):
     changed_mask = pd.DataFrame(False, index=df.index, columns=df.columns)
     quality_scores = []
     email_validation_results = []
+    pattern_match_info = []
     
     # Detect column names
     email_col = options.get('email_col', 'Email')
     phone_col = options.get('phone_col', 'Phone')
     job_title_col = options.get('job_title_col', 'Job Title')
+    company_col = 'Company'
+    
+    # First pass: clean all data
+    for i, row in df.iterrows():
     
     for i, row in df.iterrows():
         # Handle NaN values properly - use safe column access
@@ -579,17 +732,53 @@ def clean_data(df, options):
             cleaned_df.at[i, 'Company'] = company
             changes += 1
         
-        # Calculate quality score
+    # Analyze company email patterns (if enabled)
+    company_patterns = {}
+    check_pattern_match = options.get('check_company_email_pattern', False)
+    
+    if check_pattern_match and 'Company' in cleaned_df.columns:
+        company_patterns = analyze_company_email_patterns(
+            cleaned_df, email_col, company_col, 'First Name', 'Last Name'
+        )
+    
+    # Second pass: Calculate quality scores with pattern matching
+    for i, row in cleaned_df.iterrows():
         if options.get('calculate_quality_score', True):
-            quality_score = calculate_data_quality_score(cleaned_df.loc[i], email_col, phone_col)
+            quality_score = calculate_data_quality_score(
+                row, email_col, phone_col, 
+                company_col=company_col,
+                company_patterns=company_patterns,
+                check_pattern_match=check_pattern_match
+            )
             quality_scores.append(quality_score)
+            
+            # Store pattern match info for reporting
+            if check_pattern_match and company_patterns:
+                company = row.get(company_col, '')
+                email = row.get(email_col, '')
+                first_name = row.get('First Name', '')
+                last_name = row.get('Last Name', '')
+                
+                if company and company in company_patterns and email:
+                    matches, detected, expected = check_email_pattern_match(
+                        email, first_name, last_name, company, company_patterns
+                    )
+                    if matches is not None:
+                        pattern_match_info.append({
+                            'index': i,
+                            'company': company,
+                            'email': email,
+                            'matches_pattern': matches,
+                            'detected_pattern': detected,
+                            'expected_pattern': expected
+                        })
     
     # Add quality score column
     if options.get('calculate_quality_score', True) and quality_scores:
         cleaned_df['Quality Score'] = quality_scores
     
     pct = (changes / len(df)) * 100 if len(df) else 0
-    return cleaned_df, pct, changed_mask, email_validation_results
+    return cleaned_df, pct, changed_mask, email_validation_results, pattern_match_info, company_patterns
 
 
 def split_into_lists_by_company(df, max_lists=4):
@@ -711,6 +900,8 @@ with st.sidebar:
     clean_company = st.checkbox("Clean Company Names", value=True, help="Clean and standardize company names")
     infer_last_name = st.checkbox("Infer Last Names from Email", value=True, help="Try to infer missing last names from email addresses")
     validate_email = st.checkbox("Validate Emails", value=True, help="Validate email format and flag invalid emails")
+    check_company_email_pattern = st.checkbox("Check Company Email Patterns", value=False, 
+                                               help="For companies with 2+ contacts, emails matching the company's dominant pattern get higher scores")
     clean_phone = st.checkbox("Clean Phone Numbers", value=True, help="Clean and standardize phone numbers")
     clean_job_title = st.checkbox("Clean Job Titles", value=True, help="Clean and standardize job titles")
     calculate_quality_score = st.checkbox("Calculate Quality Scores", value=True, help="Add a data quality score (0-100) for each row")
@@ -742,6 +933,7 @@ if uploaded_file:
         'clean_company': clean_company,
         'infer_last_name': infer_last_name,
         'validate_email': validate_email,
+        'check_company_email_pattern': check_company_email_pattern,
         'clean_phone': clean_phone,
         'clean_job_title': clean_job_title,
         'calculate_quality_score': calculate_quality_score,
@@ -751,7 +943,7 @@ if uploaded_file:
     }
     
     # Clean data
-    cleaned_df, percent_cleaned, changed_mask, email_validation = clean_data(df, options)
+    cleaned_df, percent_cleaned, changed_mask, email_validation, pattern_match_info, company_patterns = clean_data(df, options)
     
     # Handle duplicates
     duplicates_df = pd.DataFrame()
@@ -809,6 +1001,42 @@ if uploaded_file:
     if not duplicates_df.empty and not remove_duplicates:
         with st.expander(f"⚠️ {len(duplicates_df)} Duplicate Contacts Found"):
             st.dataframe(duplicates_df, use_container_width=True)
+    
+    # Company email pattern analysis
+    if check_company_email_pattern and company_patterns:
+        matching_count = sum(1 for p in pattern_match_info if p['matches_pattern'])
+        non_matching_count = sum(1 for p in pattern_match_info if not p['matches_pattern'])
+        
+        if pattern_match_info:
+            with st.expander(f"📊 Company Email Pattern Analysis ({len(company_patterns)} companies analyzed)"):
+                st.info(f"✅ {matching_count} emails match their company's pattern | ⚠️ {non_matching_count} emails don't match")
+                
+                # Show companies with patterns
+                st.markdown("**Companies with detected email patterns:**")
+                pattern_summary = []
+                for company, info in company_patterns.items():
+                    pattern_summary.append({
+                        'Company': company,
+                        'Pattern': info['pattern'],
+                        'Matching Emails': f"{info['count']}/{info['total']}",
+                        'Percentage': f"{info['percentage']:.1f}%"
+                    })
+                st.dataframe(pd.DataFrame(pattern_summary), use_container_width=True)
+                
+                # Show non-matching emails
+                if non_matching_count > 0:
+                    st.markdown("**⚠️ Emails that don't match their company's pattern:**")
+                    non_matching_df = pd.DataFrame([
+                        {
+                            'Row': p['index'] + 1,
+                            'Company': p['company'],
+                            'Email': p['email'],
+                            'Detected Pattern': p['detected_pattern'],
+                            'Expected Pattern': p['expected_pattern']
+                        }
+                        for p in pattern_match_info if not p['matches_pattern']
+                    ])
+                    st.dataframe(non_matching_df, use_container_width=True)
     
     split_batches = None
     
