@@ -34,69 +34,59 @@ st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap');
 
-        /* Main Grid Background */
+        /* 1. Define colors for Light Mode (Default) */
+        :root {
+            --primary-text: #0a2342;
+            --bg-color: #ffffff;
+            --grid-color: #f0f0f0;
+            --box-bg: #F0F0F0;
+        }
+
+        /* 2. Automatically switch colors for Dark Mode */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --primary-text: #ffffff; /* Text becomes white */
+                --bg-color: #0e1117;    /* Standard Streamlit dark background */
+                --grid-color: #262730;
+                --box-bg: #262730;
+            }
+        }
+
         .stApp {
-            background-color: #ffffff;
+            background-color: var(--bg-color);
             background-image: 
-                linear-gradient(#f0f0f0 1px, transparent 1px),
-                linear-gradient(90deg, #f0f0f0 1px, transparent 1px);
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
             background-size: 30px 30px;
             font-family: 'Montserrat', sans-serif;
         }
 
-        html, body, [class*="css"] {
+        /* Use the variable for all text elements */
+        html, body, [class*="css"], .stMarkdown, p, h1, h2, h3 {
             font-family: 'Montserrat', sans-serif;
-            background-color: #ffffff;
-            color: #0a2342;
+            color: var(--primary-text) !important;
         }
-        .title-text {
+
+        .title-text, .subtitle-text, .section-header {
             text-align: center;
-            font-size: 3em;
-            font-weight: 700;
-            margin-bottom: 0.1em;
-            color: #0a2342;
+            color: var(--primary-text);
         }
-        .subtitle-text {
-            text-align: center;
-            font-size: 1.2em;
-            margin-bottom: 2em;
-            color: #0a2342;
-        }
-        .rounded-box {
-            background-color: #F0F0F0;
+
+        .title-text { font-size: 3em; font-weight: 700; }
+        
+        .rounded-box, .feedback-container {
+            background-color: var(--box-bg);
             border-radius: 16px;
             padding: 1.5rem;
             margin-bottom: 1.5rem;
-            color: #0a2342;
+            color: var(--primary-text);
         }
-        .feedback-container {
-            background-color: #F0F0F0;
-            border-radius: 16px;
-            padding: 1.5rem;
-            margin-top: 2rem;
-            color: #0a2342;
-        }
-        .feedback-box textarea {
-            background-color: #112340;
-            color: #ffffff;
-            border-radius: 12px;
-        }
-        .download-button button, .stButton>button, .stDownloadButton>button {
+
+        /* Keep buttons dark so they stand out against white/dark backgrounds */
+        .stButton>button, .stDownloadButton>button {
             background-color: #112340 !important;
             color: #ffffff !important;
             border-radius: 12px;
-        }
-        .section-header {
-            font-size: 1.3em;
-            font-weight: 600;
-            color: #0a2342;
-            margin-bottom: 0.5em;
-        }
-        .metric-card {
-            background-color: #f8f9fa;
-            padding: 1rem;
-            border-radius: 8px;
-            border-left: 4px solid #112340;
         }
     </style>
 """, unsafe_allow_html=True)
