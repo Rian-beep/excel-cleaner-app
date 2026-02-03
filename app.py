@@ -910,7 +910,43 @@ with st.sidebar:
         value=False,
         help="Split contacts from the same company into separate sending lists"
     )
+    # --- New Feature: Email Extractor Tool ---
+    st.divider()
+    st.subheader("📧 Email Extractor")
+    st.write("Find every email hidden in any CSV file.")
     
+    extractor_file = st.file_uploader("Upload CSV to extract", type=["csv"], key="extractor_upload")
+    
+    if extractor_file:
+        try:
+            # Read the uploaded file
+            ext_df = pd.read_csv(extractor_file, encoding='latin1')
+            
+            # Flatten all data to search for emails
+            all_text = ext_df.astype(str).apply(lambda x: ' '.join(x), axis=1).str.cat(sep=' ')
+            
+            # Use the same regex pattern for consistency
+            email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+            found_emails = sorted(list(set(re.findall(email_pattern, all_text))))
+            
+            if found_emails:
+                st.success(f"Found {len(found_emails)} emails!")
+                
+                # Create a simple CSV for download
+                results_df = pd.DataFrame(found_emails, columns=['Extracted Emails'])
+                csv_data = results_df.to_csv(index=False).encode('utf-8')
+                
+                st.download_button(
+                    label="📥 Download Extracted CSV",
+                    data=csv_data,
+                    file_name="extracted_emails.csv",
+                    mime="text/csv",
+                    key="extractor_download"
+                )
+            else:
+                st.warning("No emails found in this file.")
+        except Exception as e:
+            st.error(f"Error processing file: {e}")
     max_lists = st.slider("Max Lists", 1, 10, 4, help="Maximum number of lists to split contacts into")
 
 uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
