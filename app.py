@@ -910,6 +910,7 @@ with st.sidebar:
         value=False,
         help="Split contacts from the same company into separate sending lists"
     )
+    max_lists = st.slider("Max Lists", 1, 10, 4, help="Maximum number of lists to split contacts into")
     # --- New Feature: Email Extractor Tool ---
     st.divider()
     st.subheader("📧 Email Extractor")
@@ -947,7 +948,6 @@ with st.sidebar:
                 st.warning("No emails found in this file.")
         except Exception as e:
             st.error(f"Error processing file: {e}")
-    max_lists = st.slider("Max Lists", 1, 10, 4, help="Maximum number of lists to split contacts into")
 
 uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
 
